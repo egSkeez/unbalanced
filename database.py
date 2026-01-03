@@ -1,20 +1,19 @@
 # database.py
 import sqlite3
 import pandas as pd
+import json
 from constants import PLAYERS_INIT
 
 def init_db():
     conn = sqlite3.connect('cs2_history.db')
     c = conn.cursor()
-    # Create players table with secret_word column
     c.execute('''CREATE TABLE IF NOT EXISTS players 
                  (name TEXT PRIMARY KEY, elo REAL, aim REAL, util REAL, team_play REAL, secret_word TEXT)''')
     
-    # MIGRATION: Add secret_word if it doesn't exist in an old DB
     try:
-        c.execute("ALTER TABLE players ADD COLUMN secret_word TEXT DEFAULT 'password123'")
+        c.execute("ALTER TABLE players ADD COLUMN secret_word TEXT DEFAULT 'cs2pro'")
     except:
-        pass # Column already exists
+        pass 
 
     c.execute('''CREATE TABLE IF NOT EXISTS matches 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, team1_name TEXT, team2_name TEXT,
@@ -23,7 +22,17 @@ def init_db():
     
     c.execute('''CREATE TABLE IF NOT EXISTS current_draft_votes 
                  (captain_name TEXT PRIMARY KEY, pin TEXT, vote TEXT)''')
+
+    # active_draft_state now stores 'current_map' which can be a single map or comma-separated list
+    c.execute('''CREATE TABLE IF NOT EXISTS active_draft_state 
+                 (id INTEGER PRIMARY KEY, t1_json TEXT, t2_json TEXT, 
+                  name_a TEXT, name_b TEXT, avg1 REAL, avg2 REAL, current_map TEXT)''')
     
+    try:
+        c.execute("ALTER TABLE active_draft_state ADD COLUMN current_map TEXT")
+    except:
+        pass
+
     c.execute("SELECT COUNT(*) FROM players")
     if c.fetchone()[0] == 0:
         for name, d in PLAYERS_INIT.items():
@@ -32,12 +41,48 @@ def init_db():
     conn.commit()
     conn.close()
 
+def save_draft_state(t1, t2, name_a, name_b, avg1, avg2):
+    conn = sqlite3.connect('cs2_history.db')
+    c = conn.cursor()
+    c.execute("DELETE FROM active_draft_state") 
+    c.execute("INSERT INTO active_draft_state (id, t1_json, t2_json, name_a, name_b, avg1, avg2, current_map) VALUES (1, ?, ?, ?, ?, ?, ?, ?)",
+              (json.dumps(t1), json.dumps(t2), name_a, name_b, avg1, avg2, None))
+    conn.commit()
+    conn.close()
+
+# UPDATED: Handles list of maps now
+def update_draft_map(map_data):
+    # If map_data is a list, join it. If it's a string, leave it.
+    if isinstance(map_data, list):
+        val = ",".join(map_data)
+    else:
+        val = map_data
+        
+    conn = sqlite3.connect('cs2_history.db')
+    conn.execute("UPDATE active_draft_state SET current_map = ? WHERE id = 1", (val,))
+    conn.commit()
+    conn.close()
+
+def load_draft_state():
+    conn = sqlite3.connect('cs2_history.db')
+    c = conn.cursor()
+    c.execute("SELECT t1_json, t2_json, name_a, name_b, avg1, avg2, current_map FROM active_draft_state WHERE id=1")
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return (json.loads(row[0]), json.loads(row[1]), row[2], row[3], row[4], row[5], row[6])
+    return None
+
+def clear_draft_state():
+    conn = sqlite3.connect('cs2_history.db')
+    conn.execute("DELETE FROM active_draft_state")
+    conn.execute("DELETE FROM current_draft_votes")
+    conn.commit()
+    conn.close()
+
 def get_player_stats():
     conn = sqlite3.connect('cs2_history.db')
-    # We include secret_word in the pull for the Admin tab
     df = pd.read_sql_query("SELECT *, (aim+util+team_play)/3 as overall FROM players ORDER BY elo DESC", conn)
-    
-    # Calculate W/D
     try:
         matches = pd.read_sql_query("SELECT team1_players, team2_players, winner_idx FROM matches", conn)
     except:
@@ -78,7 +123,6 @@ def set_draft_pins(cap1, word1, cap2, word2):
 def submit_vote(secret_attempt, vote_choice):
     conn = sqlite3.connect('cs2_history.db')
     c = conn.cursor()
-    # Check if the secret_attempt matches a 'pin' (which is now the secret word)
     c.execute("UPDATE current_draft_votes SET vote = ? WHERE pin = ?", (vote_choice, secret_attempt))
     updated = c.rowcount > 0
     conn.commit()

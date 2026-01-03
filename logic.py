@@ -17,7 +17,6 @@ def get_best_combinations(active_names):
     roommates = {"Ghoufa", "Chajra"}
     valid_combinations = []
     
-    # Iterate through all 5v5 combinations
     for combo_indices in itertools.combinations(range(10), 5):
         t1 = [player_data[i] for i in combo_indices]
         t2 = [player_data[i] for i in range(10) if i not in combo_indices]
@@ -25,7 +24,6 @@ def get_best_combinations(active_names):
         t1_names = [p['name'] for p in t1]
         t2_names = [p['name'] for p in t2]
         
-        # Constraint: Roommates cannot be on opposing teams
         active_rm = roommates.intersection(set(active_names))
         if len(active_rm) == 2:
             if not (all(rm in t1_names for rm in active_rm) or all(rm in t2_names for rm in active_rm)):
@@ -38,12 +36,11 @@ def get_best_combinations(active_names):
         avg2 = round(p2_sum / 5, 2)
         gap = abs(p1_sum - p2_sum)
         
-        # Tuple: (Team1_List, Team2_List, Avg1, Avg2, TotalGap)
         valid_combinations.append((t1_names, t2_names, avg1, avg2, round(gap, 2)))
 
-    # Sort by smallest Gap (Most balanced first)
     valid_combinations.sort(key=lambda x: x[4])
     return valid_combinations
 
 def pick_captains(team1, team2):
+    # Strictly pick one from list 1 and one from list 2
     return random.choice(team1), random.choice(team2)
