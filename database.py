@@ -9,16 +9,43 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS players 
                  (name TEXT PRIMARY KEY, elo REAL, aim REAL, util REAL, team_play REAL)''')
     c.execute('''CREATE TABLE IF NOT EXISTS matches 
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                  team1_name TEXT, team2_name TEXT,
-                  team1_players TEXT, team2_players TEXT, 
-                  winner_idx INTEGER, map TEXT, elo_diff REAL, date TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, team1_name TEXT, team2_name TEXT,
+                  team1_players TEXT, team2_players TEXT, winner_idx INTEGER, 
+                  map TEXT, elo_diff REAL, date TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+    
+    # NEW: Table for anonymous voting
+    c.execute('''CREATE TABLE IF NOT EXISTS current_draft_votes 
+                 (captain_name TEXT PRIMARY KEY, pin TEXT, vote TEXT)''')
+    
     c.execute("SELECT COUNT(*) FROM players")
     if c.fetchone()[0] == 0:
         for name, d in PLAYERS_INIT.items():
             c.execute("INSERT INTO players VALUES (?, ?, ?, ?, ?)", (name, d['elo'], d['aim'], d['util'], d['team']))
     conn.commit()
     conn.close()
+
+def set_draft_pins(cap1, pin1, cap2, pin2):
+    conn = sqlite3.connect('cs2_history.db')
+    conn.execute("DELETE FROM current_draft_votes") 
+    conn.execute("INSERT INTO current_draft_votes (captain_name, pin, vote) VALUES (?, ?, ?)", (cap1, pin1, "Waiting"))
+    conn.execute("INSERT INTO current_draft_votes (captain_name, pin, vote) VALUES (?, ?, ?)", (cap2, pin2, "Waiting"))
+    conn.commit()
+    conn.close()
+
+def submit_vote(pin, vote_choice):
+    conn = sqlite3.connect('cs2_history.db')
+    c = conn.cursor()
+    c.execute("UPDATE current_draft_votes SET vote = ? WHERE pin = ?", (vote_choice, pin))
+    updated = c.rowcount > 0
+    conn.commit()
+    conn.close()
+    return updated
+
+def get_vote_status():
+    conn = sqlite3.connect('cs2_history.db')
+    df = pd.read_sql_query("SELECT * FROM current_draft_votes", conn)
+    conn.close()
+    return df
 
 def get_player_stats():
     conn = sqlite3.connect('cs2_history.db')

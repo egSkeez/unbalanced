@@ -3,6 +3,13 @@ import sqlite3
 import itertools
 import random
 
+# logic.py
+# ... (Keep your existing get_best_combinations function) ...
+
+def pick_captains(team1, team2):
+    import random
+    return random.choice(team1), random.choice(team2)
+
 def get_best_combinations(active_names):
     conn = sqlite3.connect('cs2_history.db')
     c = conn.cursor()
