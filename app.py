@@ -18,6 +18,22 @@ init_cybershoke_db()
 
 st.set_page_config(page_title="CS2 Pro Balancer", layout="centered")
 
+# --- AUTH PERSISTENCE CHECK ---
+# Checks URL parameters to keep admin logged in across refreshes
+if "admin_user" in st.query_params:
+    st.session_state.admin_authenticated = True
+    st.session_state.admin_user = st.query_params["admin_user"]
+
+# Initialize Session State
+if 'admin_authenticated' not in st.session_state: st.session_state.admin_authenticated = False
+if 'admin_user' not in st.session_state: st.session_state.admin_user = None
+if 'teams_locked' not in st.session_state: st.session_state.teams_locked = False
+if 'revealed' not in st.session_state: st.session_state.revealed = False
+if 'veto_maps' not in st.session_state: st.session_state.veto_maps = MAP_POOL.copy()
+if 'protected_maps' not in st.session_state: st.session_state.protected_maps = []
+if 'turn' not in st.session_state: st.session_state.turn = None
+if 'global_map_pick' not in st.session_state: st.session_state.global_map_pick = None
+
 st.markdown("""
 <style>
     [data-testid="stVerticalBlock"] h3 { min-height: 110px; display: flex; align-items: center; text-align: center; justify-content: center; font-size: 1.5rem !important; }
@@ -31,6 +47,26 @@ st.markdown("""
     .map-box-container { text-align: center; border: 1px solid #333; padding: 10px; border-radius: 8px; background-color: #1E1E1E; }
     .map-order { color: #FFD700; font-weight: bold; font-size: 0.9em; margin-bottom: 5px; }
     .map-name { color: white; font-weight: bold; font-size: 1.1em; }
+    
+    /* Status Badge */
+    .turn-indicator {
+        background-color: #262730;
+        border: 1px solid #444;
+        color: #FFD700;
+        padding: 10px;
+        border-radius: 8px;
+        text-align: center;
+        font-size: 1.2em;
+        font-weight: bold;
+        margin-bottom: 15px;
+    }
+    
+    .admin-badge {
+        color: #00E500;
+        font-size: 0.8em;
+        font-weight: bold;
+        margin-left: 10px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -46,112 +82,119 @@ if 'teams_locked' not in st.session_state or not st.session_state.teams_locked:
         if db_map:
             st.session_state.global_map_pick = db_map
 
-# Initialize Session State
-if 'admin_authenticated' not in st.session_state: st.session_state.admin_authenticated = False
-if 'teams_locked' not in st.session_state: st.session_state.teams_locked = False
-if 'revealed' not in st.session_state: st.session_state.revealed = False
-if 'veto_maps' not in st.session_state: st.session_state.veto_maps = MAP_POOL.copy()
-if 'protected_maps' not in st.session_state: st.session_state.protected_maps = []
-if 'turn' not in st.session_state: st.session_state.turn = None
-if 'global_map_pick' not in st.session_state: st.session_state.global_map_pick = None
-
 player_df = get_player_stats()
 
 tabs = st.tabs(["🎮 Mixer & Veto", "🎡 Bench Wheel", "🏆 Leaderboard", "📜 History", "⚙️ Admin"])
 
 # --- TAB: MIXER & VETO ---
 with tabs[0]:
-    st.title("🎮 CS2 Draft & Veto")
+    title_text = "🎮 CS2 Draft & Veto"
+    if st.session_state.admin_authenticated:
+        title_text += f" <span class='admin-badge'>HOST: {st.session_state.admin_user}</span>"
+    st.markdown(f"## {title_text}", unsafe_allow_html=True)
     
     # 1. Selection Phase
     if not st.session_state.teams_locked:
-        current_sel = st.session_state.get("current_selection", [])
-        st.write(f"**Players Selected:** `{len(current_sel)}/10`")
         
-        selected = st.multiselect("Select 10 Players:", options=player_df['name'].tolist(), key="current_selection", label_visibility="collapsed")
+        # --- ADMIN VIEW ---
+        if st.session_state.admin_authenticated:
+            current_sel = st.session_state.get("current_selection", [])
+            st.write(f"**Players Selected:** `{len(current_sel)}/10`")
+            
+            selected = st.multiselect("Select 10 Players:", options=player_df['name'].tolist(), key="current_selection", label_visibility="collapsed")
 
-        if len(selected) == 10:
-            col1, col2 = st.columns(2)
-            if col1.button("⚖️ Perfect Balance", use_container_width=True):
-                all_combos = get_best_combinations(selected)
-                t1, t2, a1, a2, gap = all_combos[0]
-                n_a, n_b = random.sample(TEAM_NAMES, 2)
-                save_draft_state(t1, t2, n_a, n_b, a1, a2)
-                st.session_state.final_teams = all_combos[0]
-                st.session_state.assigned_names = (n_a, n_b)
-                st.session_state.teams_locked = True
-                st.session_state.revealed = False
-                st.session_state.global_map_pick = None
-                if 'draft_pins' in st.session_state: del st.session_state.draft_pins
-                st.rerun()
-                
-            if col2.button("🎲 Chaos Mode", use_container_width=True):
-                all_combos = get_best_combinations(selected)
-                ridx = random.randint(1, min(50, len(all_combos) - 1))
-                t1, t2, a1, a2, gap = all_combos[ridx]
-                n_a, n_b = random.sample(TEAM_NAMES, 2)
-                save_draft_state(t1, t2, n_a, n_b, a1, a2)
-                st.session_state.final_teams = all_combos[ridx]
-                st.session_state.assigned_names = (n_a, n_b)
-                st.session_state.teams_locked = True
-                st.session_state.revealed = False
-                st.session_state.global_map_pick = None
-                if 'draft_pins' in st.session_state: del st.session_state.draft_pins
-                st.rerun()
+            if len(selected) == 10:
+                col1, col2 = st.columns(2)
+                if col1.button("⚖️ Perfect Balance", use_container_width=True):
+                    all_combos = get_best_combinations(selected)
+                    t1, t2, a1, a2, gap = all_combos[0]
+                    n_a, n_b = random.sample(TEAM_NAMES, 2)
+                    save_draft_state(t1, t2, n_a, n_b, a1, a2)
+                    st.session_state.final_teams = all_combos[0]
+                    st.session_state.assigned_names = (n_a, n_b)
+                    st.session_state.teams_locked = True
+                    st.session_state.revealed = False
+                    st.session_state.global_map_pick = None
+                    if 'draft_pins' in st.session_state: del st.session_state.draft_pins
+                    st.rerun()
+                    
+                if col2.button("🎲 Chaos Mode", use_container_width=True):
+                    all_combos = get_best_combinations(selected)
+                    ridx = random.randint(1, min(50, len(all_combos) - 1))
+                    t1, t2, a1, a2, gap = all_combos[ridx]
+                    n_a, n_b = random.sample(TEAM_NAMES, 2)
+                    save_draft_state(t1, t2, n_a, n_b, a1, a2)
+                    st.session_state.final_teams = all_combos[ridx]
+                    st.session_state.assigned_names = (n_a, n_b)
+                    st.session_state.teams_locked = True
+                    st.session_state.revealed = False
+                    st.session_state.global_map_pick = None
+                    if 'draft_pins' in st.session_state: del st.session_state.draft_pins
+                    st.rerun()
+        
+        # --- SPECTATOR VIEW ---
+        else:
+            st.info("👋 Waiting for an Admin (Skeez, Ghoufa, or Kim) to start the session...")
+            if "current_selection" in st.session_state and st.session_state.current_selection:
+                 st.caption(f"Currently Selected ({len(st.session_state.current_selection)}/10):")
+                 st.code(", ".join(st.session_state.current_selection))
+            st_autorefresh(interval=3000, key="lobby_sync")
 
     else:
         # --- LOCKED DRAFT VIEW ---
-        
-        # Only Auto-Refresh if NOT Admin (Admins have manual control)
         if st.session_state.revealed and not st.session_state.admin_authenticated:
-            st_autorefresh(interval=4000, key="global_sync")
+            st_autorefresh(interval=2000, key="global_sync")
 
         t1_unsorted, t2_unsorted, avg1, avg2, _ = st.session_state.final_teams 
         name_a, name_b = st.session_state.assigned_names
         
-        # --- 1. DRAFT CONTROLS ---
-        with st.expander("🛠️ Draft Options (Reroll / Reset)"):
-            rc1, rc2, rc3 = st.columns(3)
-            if rc1.button("⚖️ Reroll (Balanced)", use_container_width=True):
-                current_players = t1_unsorted + t2_unsorted
-                all_combos = get_best_combinations(current_players)
-                nt1, nt2, na1, na2, ngap = all_combos[0]
-                nn_a, nn_b = random.sample(TEAM_NAMES, 2)
-                save_draft_state(nt1, nt2, nn_a, nn_b, na1, na2)
-                st.session_state.final_teams = all_combos[0]
-                st.session_state.assigned_names = (nn_a, nn_b)
-                st.session_state.revealed = False
-                st.session_state.global_map_pick = None
-                if 'draft_pins' in st.session_state: del st.session_state.draft_pins
-                st.rerun()
-                
-            if rc2.button("🎲 Reroll (Chaos)", use_container_width=True):
-                current_players = t1_unsorted + t2_unsorted
-                all_combos = get_best_combinations(current_players)
-                ridx = random.randint(1, min(50, len(all_combos) - 1))
-                nt1, nt2, na1, na2, ngap = all_combos[ridx]
-                nn_a, nn_b = random.sample(TEAM_NAMES, 2)
-                save_draft_state(nt1, nt2, nn_a, nn_b, na1, na2)
-                st.session_state.final_teams = all_combos[ridx]
-                st.session_state.assigned_names = (nn_a, nn_b)
-                st.session_state.revealed = False
-                st.session_state.global_map_pick = None
-                if 'draft_pins' in st.session_state: del st.session_state.draft_pins
-                st.rerun()
-                
-            if rc3.button("🔄 Full Reset", type="primary", use_container_width=True):
-                clear_draft_state()
-                clear_lobby_link()
-                st.session_state.clear()
-                st.rerun()
+        # --- 1. DRAFT CONTROLS (ADMIN ONLY) ---
+        if st.session_state.admin_authenticated:
+            with st.expander("🛠️ Draft Options (Reroll / Reset)"):
+                rc1, rc2, rc3 = st.columns(3)
+                if rc1.button("⚖️ Reroll (Balanced)", use_container_width=True):
+                    current_players = t1_unsorted + t2_unsorted
+                    all_combos = get_best_combinations(current_players)
+                    nt1, nt2, na1, na2, ngap = all_combos[0]
+                    nn_a, nn_b = random.sample(TEAM_NAMES, 2)
+                    save_draft_state(nt1, nt2, nn_a, nn_b, na1, na2)
+                    st.session_state.final_teams = all_combos[0]
+                    st.session_state.assigned_names = (nn_a, nn_b)
+                    st.session_state.revealed = False
+                    st.session_state.global_map_pick = None
+                    if 'draft_pins' in st.session_state: del st.session_state.draft_pins
+                    st.rerun()
+                    
+                if rc2.button("🎲 Reroll (Chaos)", use_container_width=True):
+                    current_players = t1_unsorted + t2_unsorted
+                    all_combos = get_best_combinations(current_players)
+                    ridx = random.randint(1, min(50, len(all_combos) - 1))
+                    nt1, nt2, na1, na2, ngap = all_combos[ridx]
+                    nn_a, nn_b = random.sample(TEAM_NAMES, 2)
+                    save_draft_state(nt1, nt2, nn_a, nn_b, na1, na2)
+                    st.session_state.final_teams = all_combos[ridx]
+                    st.session_state.assigned_names = (nn_a, nn_b)
+                    st.session_state.revealed = False
+                    st.session_state.global_map_pick = None
+                    if 'draft_pins' in st.session_state: del st.session_state.draft_pins
+                    st.rerun()
+                    
+                if rc3.button("🔄 Full Reset", type="primary", use_container_width=True):
+                    clear_draft_state()
+                    clear_lobby_link()
+                    st.session_state.clear()
+                    st.rerun()
 
-        # --- 2. ACTIVE LOBBY LINK (CONDITIONAL VISIBILITY) ---
-        # Only show if the maps are finalized
+        # --- 2. ACTIVE LOBBY LINK ---
         active_lobby = get_lobby_link()
         if active_lobby and st.session_state.global_map_pick:
             st.markdown(f"""
                 <div class="cs-box">
-                    <div class="cs-title">🚀 CYBERSHOKE LOBBY READY | PASSWORD: kimkim</div>
+                    <div class="cs-title">🚀 CYBERSHOKE LOBBY READY</div>
+                    <p style="color:white; font-family: monospace; font-size: 1.1em;">
+                        {active_lobby} <br> 
+                        <span style="color: #FFD700; font-weight: bold;">Password: kimkim</span>
+                    </p>
                     <a href="{active_lobby}" target="_blank">
                         <button style="background-color: #00E500; color: black; border: none; padding: 10px 20px; font-weight: bold; border-radius: 5px; cursor: pointer; width: 100%;">
                             ▶️ JOIN SERVER
@@ -159,7 +202,10 @@ with tabs[0]:
                     </a>
                 </div>
             """, unsafe_allow_html=True)
-            # Removed the Clear Link button from here as requested
+            if st.session_state.admin_authenticated:
+                 if st.button("🗑️ Clear Link (Admin)", key="clear_link_top"):
+                     clear_lobby_link()
+                     st.rerun()
 
         # Sorting
         score_map = dict(zip(player_df['name'], player_df['overall']))
@@ -308,75 +354,113 @@ with tabs[0]:
                     if v1 == "Approve" and v2 == "Approve":
                         st.success("🎉 Teams Approved! Proceed to Map Veto.")
                         
-                        # --- GLOBAL MAP DISPLAY (If already picked) ---
+                        # --- GLOBAL MAP DISPLAY (Final) ---
                         if st.session_state.global_map_pick:
                              st.success("✅ MAP VETO COMPLETE")
-                             
-                             # PARSE CSV MAPS
                              picked_maps = st.session_state.global_map_pick.split(",")
                              
-                             # Display 3 Maps Ordered
-                             m_cols = st.columns(len(picked_maps))
-                             for i, m_name in enumerate(picked_maps):
-                                 with m_cols[i]:
-                                     st.markdown(f"""
-                                     <div class="map-box-container">
-                                        <div class="map-order">PICK #{i+1}</div>
-                                        <div class="map-name">{m_name}</div>
-                                     </div>
-                                     """, unsafe_allow_html=True)
-                                     st.image(MAP_LOGOS[m_name], use_container_width=True)
-                             
-                             st.divider()
-                             rc1, rc2 = st.columns(2)
-                             if rc1.button(f"🏆 {name_a} Won", use_container_width=True):
-                                update_elo(t1, t2, name_a, name_b, 1, st.session_state.global_map_pick)
-                                clear_draft_state()
-                                clear_lobby_link() 
-                                st.session_state.clear(); st.rerun()
-                             if rc2.button(f"🏆 {name_b} Won", use_container_width=True):
-                                update_elo(t1, t2, name_a, name_b, 2, st.session_state.global_map_pick)
-                                clear_draft_state()
-                                clear_lobby_link()
-                                st.session_state.clear(); st.rerun()
+                             if picked_maps and picked_maps[0] != '':
+                                 m_cols = st.columns(len(picked_maps))
+                                 for i, m_name in enumerate(picked_maps):
+                                     with m_cols[i]:
+                                         st.markdown(f"""
+                                         <div class="map-box-container">
+                                            <div class="map-order">PICK #{i+1}</div>
+                                            <div class="map-name">{m_name}</div>
+                                         </div>
+                                         """, unsafe_allow_html=True)
+                                         st.image(MAP_LOGOS[m_name], use_container_width=True)
+                                 
+                                 st.divider()
+                                 if st.session_state.admin_authenticated:
+                                     rc1, rc2 = st.columns(2)
+                                     # UPDATE: Next match logic
+                                     if rc1.button(f"🏆 {name_a} Won Match 1", use_container_width=True):
+                                        update_elo(t1, t2, name_a, name_b, 1, picked_maps[0])
+                                        clear_lobby_link()
+                                        remaining = picked_maps[1:]
+                                        if remaining:
+                                            update_draft_map(remaining)
+                                            st.session_state.global_map_pick = ",".join(remaining)
+                                        else:
+                                            update_draft_map("") 
+                                            st.session_state.global_map_pick = ""
+                                        st.rerun()
+
+                                     if rc2.button(f"🏆 {name_b} Won Match 1", use_container_width=True):
+                                        update_elo(t1, t2, name_a, name_b, 2, picked_maps[0])
+                                        clear_lobby_link()
+                                        remaining = picked_maps[1:]
+                                        if remaining:
+                                            update_draft_map(remaining)
+                                            st.session_state.global_map_pick = ",".join(remaining)
+                                        else:
+                                            update_draft_map("")
+                                            st.session_state.global_map_pick = ""
+                                        st.rerun()
+                             else:
+                                 st.info("No more maps in queue! Session Complete.")
+                                 if st.session_state.admin_authenticated:
+                                     if st.button("Start New Session"):
+                                         clear_draft_state()
+                                         clear_lobby_link()
+                                         st.session_state.clear()
+                                         st.rerun()
 
                         else:
-                            # --- VETO LOGIC (ADMIN ONLY) ---
-                            if st.session_state.admin_authenticated:
-                                if st.session_state.turn is None:
-                                    if st.button("Flip Coin for Veto", use_container_width=True):
-                                        st.session_state.turn = random.choice([name_a, name_b]); st.rerun()
-                                elif len(st.session_state.protected_maps) < 2:
-                                     st.subheader(f"🛡️ Protection: {st.session_state.turn}")
-                                     cols = st.columns(7) 
-                                     for i, m in enumerate(st.session_state.veto_maps):
-                                         with cols[i]:
-                                             st.image(MAP_LOGOS[m], use_container_width=True)
-                                             if st.button(m, key=f"p_{m}"):
-                                                 st.session_state.protected_maps.append(m)
-                                                 st.session_state.veto_maps.remove(m)
-                                                 st.session_state.turn = name_b if st.session_state.turn == name_a else name_a; st.rerun()
-                                
-                                elif len(st.session_state.veto_maps) > 1:
-                                     st.subheader(f"🗳️ Banning: {st.session_state.turn}")
-                                     cols = st.columns(7) 
-                                     for i, m in enumerate(st.session_state.veto_maps):
-                                         with cols[i]:
-                                             st.image(MAP_LOGOS[m], use_container_width=True)
-                                             if st.button(m, key=f"b_{m}"):
-                                                 st.session_state.veto_maps.remove(m)
-                                                 st.session_state.turn = name_b if st.session_state.turn == name_a else name_a; st.rerun()
-                                else:
-                                    # SAVE ALL 3 MAPS
-                                    # Order: Pick 1, Pick 2, Decider (Remaining)
-                                    final_order = st.session_state.protected_maps + st.session_state.veto_maps
-                                    
-                                    # Save list as CSV
-                                    update_draft_map(final_order)
-                                    st.session_state.global_map_pick = ",".join(final_order)
-                                    st.rerun()
+                            # --- LIVE VETO DISPLAY ---
+                            phase_label = "BANNING PHASE"
+                            if len(st.session_state.protected_maps) < 2 and len(st.session_state.veto_maps) == 7:
+                                phase_label = "PICKING PHASE (Protection)"
+                            
+                            # DISPLAY TURN TO EVERYONE
+                            if st.session_state.turn:
+                                st.markdown(f"""
+                                    <div class="turn-indicator">
+                                        {phase_label} <br>
+                                        Current Turn: <span style="color: #4da6ff;">{st.session_state.turn}</span>
+                                    </div>
+                                """, unsafe_allow_html=True)
                             else:
-                                st.info("⏳ Waiting for Admin/Captains to Veto Maps...")
+                                st.markdown(f"""<div class="turn-indicator">Waiting for Coin Flip...</div>""", unsafe_allow_html=True)
+
+                            # COIN FLIP (Admin Only)
+                            if st.session_state.admin_authenticated and st.session_state.turn is None:
+                                if st.button("🪙 Flip Coin to Start", use_container_width=True):
+                                    st.session_state.turn = random.choice([name_a, name_b])
+                                    st.rerun()
+
+                            # SHOW PROTECTED MAPS (Everyone)
+                            if st.session_state.protected_maps:
+                                st.write("Protected Maps: " + ", ".join(st.session_state.protected_maps))
+
+                            # MAP GRID (Everyone)
+                            cols = st.columns(7) 
+                            for i, m in enumerate(st.session_state.veto_maps):
+                                with cols[i]:
+                                    st.image(MAP_LOGOS[m], use_container_width=True)
+                                    
+                                    # BUTTONS (Admin Only)
+                                    if st.session_state.admin_authenticated and st.session_state.turn:
+                                        # Protection Phase
+                                        if len(st.session_state.protected_maps) < 2:
+                                            if st.button("Pick", key=f"p_{m}"):
+                                                st.session_state.protected_maps.append(m)
+                                                st.session_state.veto_maps.remove(m)
+                                                st.session_state.turn = name_b if st.session_state.turn == name_a else name_a; st.rerun()
+                                        
+                                        # Ban Phase
+                                        elif len(st.session_state.veto_maps) > 1:
+                                            if st.button("Ban", key=f"b_{m}"):
+                                                st.session_state.veto_maps.remove(m)
+                                                st.session_state.turn = name_b if st.session_state.turn == name_a else name_a; st.rerun()
+                                        
+                                        # Finalize
+                                        else:
+                                            final_three = st.session_state.protected_maps + st.session_state.veto_maps
+                                            update_draft_map(final_three)
+                                            st.session_state.global_map_pick = ",".join(final_three)
+                                            st.rerun()
 
                     else:
                         st.error("🚨 A Reroll was requested. Randomizing new teams...")
@@ -395,20 +479,20 @@ with tabs[0]:
 
             # --- ADMIN CYBERSHOKE CREATE TOOL ---
             if st.session_state.admin_authenticated and st.session_state.global_map_pick and not active_lobby:
-                st.divider()
-                st.markdown("""<div class="cs-box"><div class="cs-title">🛠️ Create Cybershoke Lobby</div>""", unsafe_allow_html=True)
-                
-                # Show DECIDER map for server config (last map in list)
-                decider_map = st.session_state.global_map_pick.split(",")[-1]
-                st.code(f"Decider Map: {decider_map}\nRegion: France\nPassword: kimkim", language="text")
-                
-                st.link_button("🌐 Open Cybershoke Create Page", "https://cybershoke.net/matches/create", use_container_width=True)
-                c_link = st.text_input("Paste Connect Link/IP here:", placeholder="e.g. 192.168.1.1:27015")
-                if st.button("✅ Set Server Link", use_container_width=True):
-                    if c_link:
-                        set_lobby_link(c_link)
-                        st.rerun()
-                st.markdown("</div>", unsafe_allow_html=True)
+                if st.session_state.global_map_pick.strip():
+                    st.divider()
+                    st.markdown("""<div class="cs-box"><div class="cs-title">🛠️ Create Cybershoke Lobby</div>""", unsafe_allow_html=True)
+                    
+                    next_map = st.session_state.global_map_pick.split(",")[0]
+                    st.code(f"Current Map: {next_map}\nRegion: France\nPassword: kimkim", language="text")
+                    
+                    st.link_button("🌐 Open Cybershoke Create Page", "https://cybershoke.net/matches/create", use_container_width=True)
+                    c_link = st.text_input("Paste Connect Link/IP here:", placeholder="e.g. 192.168.1.1:27015")
+                    if st.button("✅ Set Server Link", use_container_width=True):
+                        if c_link:
+                            set_lobby_link(c_link)
+                            st.rerun()
+                    st.markdown("</div>", unsafe_allow_html=True)
 
 # --- TAB: BENCH WHEEL ---
 with tabs[1]:
@@ -443,19 +527,32 @@ with tabs[4]:
     if not st.session_state.admin_authenticated:
         st.title("🔐 Admin Login")
         with st.form("admin_login_form"):
+            admin_user = st.selectbox("Who are you?", ["Skeez", "Ghoufa", "Kim"])
             pwd_input = st.text_input("Enter Admin Password", type="password")
-            submitted = st.form_submit_button("Unlock Management")
+            submitted = st.form_submit_button("Login")
             if submitted:
-                if pwd_input == "2567":
+                # Check specifics
+                success = False
+                if admin_user == "Skeez" and pwd_input == "2567":
+                    success = True
+                elif admin_user in ["Ghoufa", "Kim"] and pwd_input == "An25671527!":
+                    success = True
+                
+                if success:
                     st.session_state.admin_authenticated = True
-                    st.success("Access Granted")
+                    st.session_state.admin_user = admin_user
+                    # PERSIST LOGIN
+                    st.query_params["admin_user"] = admin_user
+                    st.success(f"Welcome, {admin_user}!")
                     st.rerun()
                 else:
                     st.error("Incorrect Password")
     else:
-        st.title("⚙️ Roster & Lobby Management")
-        if st.button("Logout Admin"):
+        st.title(f"⚙️ Management ({st.session_state.admin_user})")
+        if st.button("Logout"):
             st.session_state.admin_authenticated = False
+            st.session_state.admin_user = None
+            st.query_params.clear() # Clear URL
             st.rerun()
         
         # --- ADMIN LOBBY MANAGER ---
