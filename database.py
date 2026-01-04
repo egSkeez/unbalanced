@@ -7,9 +7,11 @@ from constants import PLAYERS_INIT
 def init_db():
     conn = sqlite3.connect('cs2_history.db')
     c = conn.cursor()
+    # Create tables
     c.execute('''CREATE TABLE IF NOT EXISTS players 
                  (name TEXT PRIMARY KEY, elo REAL, aim REAL, util REAL, team_play REAL, secret_word TEXT)''')
     
+    # Migration for secret_word if needed
     try:
         c.execute("ALTER TABLE players ADD COLUMN secret_word TEXT DEFAULT 'cs2pro'")
     except:
@@ -23,7 +25,6 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS current_draft_votes 
                  (captain_name TEXT PRIMARY KEY, pin TEXT, vote TEXT)''')
 
-    # active_draft_state now stores 'current_map' which can be a single map or comma-separated list
     c.execute('''CREATE TABLE IF NOT EXISTS active_draft_state 
                  (id INTEGER PRIMARY KEY, t1_json TEXT, t2_json TEXT, 
                   name_a TEXT, name_b TEXT, avg1 REAL, avg2 REAL, current_map TEXT)''')
@@ -33,6 +34,7 @@ def init_db():
     except:
         pass
 
+    # Initialize players if empty
     c.execute("SELECT COUNT(*) FROM players")
     if c.fetchone()[0] == 0:
         for name, d in PLAYERS_INIT.items():
@@ -50,14 +52,8 @@ def save_draft_state(t1, t2, name_a, name_b, avg1, avg2):
     conn.commit()
     conn.close()
 
-# UPDATED: Handles list of maps now
 def update_draft_map(map_data):
-    # If map_data is a list, join it. If it's a string, leave it.
-    if isinstance(map_data, list):
-        val = ",".join(map_data)
-    else:
-        val = map_data
-        
+    val = ",".join(map_data) if isinstance(map_data, list) else map_data
     conn = sqlite3.connect('cs2_history.db')
     conn.execute("UPDATE active_draft_state SET current_map = ? WHERE id = 1", (val,))
     conn.commit()
@@ -112,11 +108,12 @@ def get_player_secret(name):
     conn.close()
     return res[0] if res else "UNKNOWN"
 
+# --- FIX IS HERE: Use INSERT OR REPLACE ---
 def set_draft_pins(cap1, word1, cap2, word2):
     conn = sqlite3.connect('cs2_history.db')
-    conn.execute("DELETE FROM current_draft_votes") 
-    conn.execute("INSERT INTO current_draft_votes (captain_name, pin, vote) VALUES (?, ?, ?)", (cap1, word1, "Waiting"))
-    conn.execute("INSERT INTO current_draft_votes (captain_name, pin, vote) VALUES (?, ?, ?)", (cap2, word2, "Waiting"))
+    # This prevents the unique constraint error
+    conn.execute("INSERT OR REPLACE INTO current_draft_votes (captain_name, pin, vote) VALUES (?, ?, ?)", (cap1, word1, "Waiting"))
+    conn.execute("INSERT OR REPLACE INTO current_draft_votes (captain_name, pin, vote) VALUES (?, ?, ?)", (cap2, word2, "Waiting"))
     conn.commit()
     conn.close()
 
