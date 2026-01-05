@@ -7,11 +7,9 @@ from constants import PLAYERS_INIT
 def init_db():
     conn = sqlite3.connect('cs2_history.db')
     c = conn.cursor()
-    # Create tables
     c.execute('''CREATE TABLE IF NOT EXISTS players 
                  (name TEXT PRIMARY KEY, elo REAL, aim REAL, util REAL, team_play REAL, secret_word TEXT)''')
     
-    # Migration for secret_word if needed
     try:
         c.execute("ALTER TABLE players ADD COLUMN secret_word TEXT DEFAULT 'cs2pro'")
     except:
@@ -34,12 +32,15 @@ def init_db():
     except:
         pass
 
-    # Initialize players if empty
     c.execute("SELECT COUNT(*) FROM players")
     if c.fetchone()[0] == 0:
         for name, d in PLAYERS_INIT.items():
             c.execute("INSERT INTO players VALUES (?, ?, ?, ?, ?, ?)", 
                       (name, d['elo'], d['aim'], d['util'], d['team'], "cs2pro"))
+    
+    # Force lowercase secrets
+    c.execute("UPDATE players SET secret_word = lower(name)")
+    
     conn.commit()
     conn.close()
 
@@ -108,12 +109,11 @@ def get_player_secret(name):
     conn.close()
     return res[0] if res else "UNKNOWN"
 
-# --- FIX IS HERE: Use INSERT OR REPLACE ---
 def set_draft_pins(cap1, word1, cap2, word2):
     conn = sqlite3.connect('cs2_history.db')
-    # This prevents the unique constraint error
-    conn.execute("INSERT OR REPLACE INTO current_draft_votes (captain_name, pin, vote) VALUES (?, ?, ?)", (cap1, word1, "Waiting"))
-    conn.execute("INSERT OR REPLACE INTO current_draft_votes (captain_name, pin, vote) VALUES (?, ?, ?)", (cap2, word2, "Waiting"))
+    conn.execute("DELETE FROM current_draft_votes")
+    conn.execute("INSERT INTO current_draft_votes (captain_name, pin, vote) VALUES (?, ?, ?)", (cap1, word1, "Waiting"))
+    conn.execute("INSERT INTO current_draft_votes (captain_name, pin, vote) VALUES (?, ?, ?)", (cap2, word2, "Waiting"))
     conn.commit()
     conn.close()
 
@@ -128,7 +128,8 @@ def submit_vote(secret_attempt, vote_choice):
 
 def get_vote_status():
     conn = sqlite3.connect('cs2_history.db')
-    df = pd.read_sql_query("SELECT * FROM current_draft_votes", conn)
+    # FIX: Added ORDER BY to ensure v1 and v2 don't swap places randomly
+    df = pd.read_sql_query("SELECT * FROM current_draft_votes ORDER BY captain_name", conn)
     conn.close()
     return df
 

@@ -11,6 +11,7 @@ from database import init_db, get_player_stats, update_elo, set_draft_pins, subm
 from logic import get_best_combinations, pick_captains
 from wheel import render_bench_wheel
 from cybershoke import init_cybershoke_db, set_lobby_link, get_lobby_link, clear_lobby_link, create_cybershoke_lobby_api
+from discord_bot import send_teams_to_discord, send_lobby_to_discord, send_maps_to_discord
 
 # Initialize Databases
 init_db()
@@ -35,6 +36,7 @@ if 'veto_maps' not in st.session_state: st.session_state.veto_maps = MAP_POOL.co
 if 'protected_maps' not in st.session_state: st.session_state.protected_maps = []
 if 'turn' not in st.session_state: st.session_state.turn = None
 if 'global_map_pick' not in st.session_state: st.session_state.global_map_pick = None
+if 'maps_sent_to_discord' not in st.session_state: st.session_state.maps_sent_to_discord = False
 
 st.markdown("""
 <style>
@@ -101,7 +103,8 @@ def render_comparision_row(label, val1, val2):
     with row_c3:
         st.markdown(f"<h3 style='text-align: left; color: #ff9f43; margin:0;'>{int(val2)}</h3>", unsafe_allow_html=True)
 
-tabs = st.tabs(["🎮 Mixer & Veto", "🎡 Bench Wheel", "🏆 Leaderboard", "📜 History", "⚙️ Admin"])
+# --- TAB DEFINITIONS ---
+tabs = st.tabs(["🎮 Mixer & Veto", "🎡 Bench Wheel", "📜 History", "⚙️ Admin"])
 
 # ==========================================
 # TAB 1: MIXER & VETO
@@ -174,6 +177,10 @@ with tabs[0]:
                     st.session_state.revealed = False
                     st.session_state.global_map_pick = None
                     if 'draft_pins' in st.session_state: del st.session_state.draft_pins
+                    # Force clean DB
+                    conn = sqlite3.connect('cs2_history.db')
+                    conn.execute("DELETE FROM current_draft_votes")
+                    conn.commit(); conn.close()
                     st.rerun()
                 if rc2.button("🎲 Reroll (Chaos)", use_container_width=True):
                     current_players = t1_unsorted + t2_unsorted
@@ -187,24 +194,27 @@ with tabs[0]:
                     st.session_state.revealed = False
                     st.session_state.global_map_pick = None
                     if 'draft_pins' in st.session_state: del st.session_state.draft_pins
+                    # Force clean DB
+                    conn = sqlite3.connect('cs2_history.db')
+                    conn.execute("DELETE FROM current_draft_votes")
+                    conn.commit(); conn.close()
                     st.rerun()
                 if rc3.button("🔄 Full Reset", type="primary", use_container_width=True):
                     clear_draft_state()
                     clear_lobby_link()
                     st.session_state.clear()
+                    st.session_state.maps_sent_to_discord = False
                     st.rerun()
 
         # --- AUTO LOBBY CREATION & LINK DISPLAY ---
         active_lobby = get_lobby_link()
-        
-        # AUTOMATIC LOGIC: If maps picked but no lobby, create one automatically
         if st.session_state.global_map_pick and not active_lobby:
-             # Prevent constant refreshing loop by checking if we already tried (optional, but good practice)
-             # For now, we just create it immediately.
              with st.spinner("🤖 Automatically creating Cybershoke lobby..."):
                  auto_link = create_cybershoke_lobby_api()
                  if auto_link:
                      set_lobby_link(auto_link)
+                     map_name = st.session_state.global_map_pick.split(",")[0]
+                     send_lobby_to_discord(auto_link, map_name)
                      st.rerun()
                  else:
                      st.error("Auto-creation failed. Use Admin tab to create manually.")
@@ -249,13 +259,17 @@ with tabs[0]:
             st.markdown(f"<div style='text-align: center; font-weight: bold;'>Total Power: {sum2}{indicator_b}</div>", unsafe_allow_html=True)
             p2_holders = [st.empty() for _ in range(5)]
         
-        # --- NEW LOCATION: PICKED MAPS DISPLAY (Right under teams) ---
+        # --- PICKED MAPS DISPLAY ---
         if st.session_state.global_map_pick:
              st.divider()
              st.markdown("<h4 style='text-align: center; color: #FFD700;'>🗺️ MAP QUEUE</h4>", unsafe_allow_html=True)
              picked_maps = st.session_state.global_map_pick.split(",")
              
              if picked_maps and picked_maps[0] != '':
+                 if not st.session_state.maps_sent_to_discord:
+                     send_maps_to_discord(picked_maps)
+                     st.session_state.maps_sent_to_discord = True
+
                  m_cols = st.columns(len(picked_maps))
                  for i, m_name in enumerate(picked_maps):
                      with m_cols[i]:
@@ -266,8 +280,7 @@ with tabs[0]:
                          </div>
                          """, unsafe_allow_html=True)
                          st.image(MAP_LOGOS[m_name], use_container_width=True)
-        # -------------------------------------------------------------
-
+        
         if 'skeez_titles_session' not in st.session_state:
             st.session_state.skeez_titles_session = [random.choice(SKEEZ_TITLES) for _ in range(10)]
 
@@ -346,16 +359,22 @@ with tabs[0]:
 
                 with st.expander("🔑 Open Voting Portal"):
                     in_secret = st.text_input("Enter your Secret Word", type="password", key="v_secret")
+                    clean_secret = in_secret.strip().lower()
+                    
                     vcol1, vcol2 = st.columns(2)
                     if vcol1.button("✅ Approve Draft", use_container_width=True):
-                        if submit_vote(in_secret.strip(), "Approve"): 
+                        if submit_vote(clean_secret, "Approve"): 
                             st.success("✅ VOTE REGISTERED (Refresh in 2s)")
+                            # Manual check before wait
+                            new_v_df = get_vote_status()
+                            if len(new_v_df) == 2 and all(new_v_df['vote'] == "Approve"):
+                                send_teams_to_discord(name_a, t1, name_b, t2)
                             time.sleep(1)
                             st.rerun()
                         else:
                             st.error("Invalid Secret Word!")
                     if vcol2.button("❌ Request Reroll", use_container_width=True):
-                        if submit_vote(in_secret.strip(), "Reroll"): 
+                        if submit_vote(clean_secret, "Reroll"): 
                             st.warning("⚠️ REROLL VOTE REGISTERED")
                             time.sleep(1)
                             st.rerun()
@@ -364,52 +383,37 @@ with tabs[0]:
 
                 v1, v2 = v_df.iloc[0]['vote'], v_df.iloc[1]['vote']
                 
+                # --- ANONYMOUS DISPLAY ---
                 def get_status_html(vote_val):
                     if vote_val == "Waiting":
                         return "<span style='color: orange; font-weight: bold;'>⏳ THINKING...</span>"
-                    elif vote_val == "Approve":
-                         return "<span style='color: #00E500; font-weight: bold;'>✅ READY</span>"
-                    elif vote_val == "Reroll":
-                         return "<span style='color: red; font-weight: bold;'>❌ REROLL</span>"
-                    return vote_val
+                    else:
+                        return "<span style='color: #4da6ff; font-weight: bold;'>🗳️ VOTE RECEIVED</span>"
 
                 s1, s2 = st.columns(2)
                 s1.markdown(f"**{cap_name_1}**: {get_status_html(v1)}", unsafe_allow_html=True)
                 s2.markdown(f"**{cap_name_2}**: {get_status_html(v2)}", unsafe_allow_html=True)
 
                 if v1 != "Waiting" and v2 != "Waiting":
+                    # STRICT CHECK FOR APPROVE
                     if v1 == "Approve" and v2 == "Approve":
                         st.success("🎉 Teams Approved! Proceed to Map Veto.")
                         
                         if st.session_state.global_map_pick:
                              st.success("✅ MAP VETO COMPLETE")
-                             # (Old location for map display was here - moved up)
-                             
                              picked_maps = st.session_state.global_map_pick.split(",")
                              if picked_maps and picked_maps[0] != '':
                                  st.divider()
                                  if st.session_state.admin_authenticated:
                                      rc1, rc2 = st.columns(2)
-                                     
-                                     # --- AUTOMATED LOBBY CREATION ON WIN ---
                                      def handle_win_and_create_next(winner_team_idx):
-                                        # 1. Update ELO / History
                                         update_elo(t1, t2, name_a, name_b, winner_idx=winner_team_idx, map_name=picked_maps[0])
-                                        
-                                        # 2. Logic for NEXT map
                                         remaining = picked_maps[1:]
                                         if remaining:
-                                            # Update DB with remaining maps
                                             update_draft_map(remaining)
                                             st.session_state.global_map_pick = ",".join(remaining)
-                                            
-                                            # 3. AUTOMATICALLY CREATE NEXT LOBBY
-                                            clear_lobby_link() # Clear old one first
-                                            # Because of streamlit refresh, we don't call API here inside the button callback directly if it hangs,
-                                            # BUT we already cleared the link. The auto-check at top of script (line 218)
-                                            # will catch that "maps exist" + "no link" and create it automatically on rerun!
+                                            clear_lobby_link() 
                                         else:
-                                            # No maps left
                                             update_draft_map("") 
                                             st.session_state.global_map_pick = ""
                                             clear_lobby_link()
@@ -428,9 +432,10 @@ with tabs[0]:
                                          clear_draft_state()
                                          clear_lobby_link()
                                          st.session_state.clear()
+                                         st.session_state.maps_sent_to_discord = False
                                          st.rerun()
-
                         else:
+                            # MAP VETO PHASE
                             phase_label = "BANNING PHASE"
                             if len(st.session_state.protected_maps) < 2 and len(st.session_state.veto_maps) == 7:
                                 phase_label = "PICKING PHASE (Protection)"
@@ -445,10 +450,26 @@ with tabs[0]:
                             else:
                                 st.markdown(f"""<div class="turn-indicator">Waiting for Coin Flip...</div>""", unsafe_allow_html=True)
 
+                            # --- FIXED COIN FLIP BUTTON LOCATION ---
                             if st.session_state.admin_authenticated and st.session_state.turn is None:
                                 if st.button("🪙 Flip Coin to Start", use_container_width=True):
-                                    st.session_state.turn = random.choice([name_a, name_b])
+                                    # FIX: Use CAPTAIN NAME, not Team Name
+                                    winner = random.choice([cap1_name, cap2_name])
+                                    
+                                    # Map captain name back to Team Name for logic
+                                    # Since we don't know who is who, we just randomly pick a Team Name
+                                    # But visually we show the captain.
+                                    # Actually, logic requires st.session_state.turn to be Team Name (name_a/name_b)
+                                    # So we pick a team, but tell the user "Captain X won"
+                                    
+                                    winning_team_name = random.choice([name_a, name_b])
+                                    st.session_state.turn = winning_team_name
+                                    
+                                    # To display correct captain, we assume cap1 is team 1
+                                    disp_winner = cap1_name if winning_team_name == name_a else cap2_name
+                                    st.toast(f"🪙 Coin Flip Winner: {disp_winner}!")
                                     st.rerun()
+                            # ----------------------------------------
 
                             if st.session_state.protected_maps:
                                 st.write("Protected Maps: " + ", ".join(st.session_state.protected_maps))
@@ -474,20 +495,26 @@ with tabs[0]:
                                             st.session_state.global_map_pick = ",".join(final_three)
                                             st.rerun()
 
-                    else:
-                        st.error("🚨 A Reroll was requested. Randomizing new teams...")
-                        set_draft_pins("Resetting1", "dummy", "Resetting2", "dummy") 
-                        time.sleep(2)
-                        del st.session_state.draft_pins
-                        del st.session_state.skeez_titles_session
-                        st.session_state.revealed = False
-                        
-                        all_combos = get_best_combinations([p for p in t1+t2])
-                        ridx = random.randint(1, min(50, len(all_combos)-1))
-                        nt1, nt2, na1, na2, ngap = all_combos[ridx]
-                        save_draft_state(nt1, nt2, name_a, name_b, na1, na2)
-                        st.session_state.final_teams = all_combos[ridx]
-                        st.rerun()
+                    
+                    # STRICT CHECK FOR REROLL
+                    elif v1 == "Reroll" or v2 == "Reroll":
+                        with st.spinner("🔄 Reroll requested! Shuffling teams..."):
+                            conn = sqlite3.connect('cs2_history.db')
+                            conn.execute("DELETE FROM current_draft_votes")
+                            conn.commit()
+                            conn.close()
+                            
+                            if 'draft_pins' in st.session_state: del st.session_state.draft_pins
+                            if 'skeez_titles_session' in st.session_state: del st.session_state.skeez_titles_session
+                            st.session_state.revealed = False
+                            
+                            all_combos = get_best_combinations([p for p in t1+t2])
+                            ridx = random.randint(1, min(50, len(all_combos)-1)) 
+                            nt1, nt2, na1, na2, ngap = all_combos[ridx]
+                            save_draft_state(nt1, nt2, name_a, name_b, na1, na2)
+                            st.session_state.final_teams = all_combos[ridx]
+                            time.sleep(1.5)
+                            st.rerun()
 
 # ==========================================
 # TAB 2: BENCH WHEEL
@@ -497,17 +524,9 @@ with tabs[1]:
     render_bench_wheel(all_player_names)
 
 # ==========================================
-# TAB 3: LEADERBOARD
+# TAB 3: HISTORY
 # ==========================================
 with tabs[2]:
-    st.title("🏆 Rankings")
-    stats_df = get_player_stats()
-    st.dataframe(stats_df[['name', 'W', 'D', 'overall']], use_container_width=True, hide_index=True)
-
-# ==========================================
-# TAB 4: HISTORY
-# ==========================================
-with tabs[3]:
     st.title("📜 History")
     try:
         conn = sqlite3.connect('cs2_history.db')
@@ -531,9 +550,9 @@ with tabs[3]:
         st.error(f"Error loading history: {e}")
 
 # ==========================================
-# TAB 5: ADMIN
+# TAB 4: ADMIN
 # ==========================================
-with tabs[4]:
+with tabs[3]:
     if not st.session_state.admin_authenticated:
         st.title("🔐 Admin Login")
         with st.form("admin_login_form"):
@@ -544,7 +563,9 @@ with tabs[4]:
                 success = False
                 if admin_user == "Skeez" and pwd_input == "2567":
                     success = True
-                elif admin_user in ["Ghoufa", "Kim"] and pwd_input == "An25671527!":
+                elif admin_user == "Ghoufa" and pwd_input == "ghoufa123":
+                    success = True
+                elif admin_user == "Kim" and pwd_input == "kim123":
                     success = True
                 
                 if success:
@@ -562,6 +583,11 @@ with tabs[4]:
             st.session_state.admin_user = None
             st.query_params.clear()
             st.rerun()
+
+        st.subheader("📊 Player Roster & Metrics")
+        roster_df = get_player_stats()
+        st.dataframe(roster_df[['name', 'elo', 'aim', 'util', 'team_play', 'W', 'D', 'overall']], 
+                     use_container_width=True, hide_index=True)
         
         st.subheader("🚀 Session & Lobby Manager")
         curr_link = get_lobby_link()
@@ -574,7 +600,6 @@ with tabs[4]:
             clear_lobby_link()
             st.success("Link removed.")
 
-        # --- MOVED MANUAL CREATION TO ADMIN TAB ---
         if st.session_state.global_map_pick:
              st.divider()
              st.markdown("""<div class="cs-box"><div class="cs-title">🛠️ Manual Cybershoke Create</div>""", unsafe_allow_html=True)
@@ -585,12 +610,12 @@ with tabs[4]:
                   link = create_cybershoke_lobby_api()
                   if link:
                       set_lobby_link(link)
+                      send_lobby_to_discord(link, next_map)
                       st.success("Lobby Created & Linked!")
                       st.rerun()
                   else:
                       st.error("Failed to create lobby. Check cookies/logs.")
              st.markdown("</div>", unsafe_allow_html=True)
-        # ------------------------------------------
             
         st.divider()
         st.subheader("⚠️ Danger Zone")
@@ -598,6 +623,7 @@ with tabs[4]:
             clear_draft_state()
             clear_lobby_link()
             st.session_state.clear()
+            st.session_state.maps_sent_to_discord = False
             st.rerun()
 
         st.divider()
