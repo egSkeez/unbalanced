@@ -8,7 +8,9 @@ import uuid
 import socket
 import qrcode
 import io
+import json #
 from constants import SKEEZ_TITLES, TEAM_NAMES, MAP_POOL, MAP_LOGOS
+# Corrected imports based on your file structure
 from database import (init_db, get_player_stats, update_elo, set_draft_pins, submit_vote, 
                       get_vote_status, save_draft_state, load_draft_state, clear_draft_state, 
                       update_draft_map, init_veto_state, get_veto_state, update_veto_turn)
@@ -47,12 +49,10 @@ def generate_qr(url):
 def render_mobile_vote_page(token):
     st.set_page_config(page_title="Captain Portal", layout="centered")
     
+    # Custom CSS for better mobile buttons
     st.markdown("""
     <style>
-        .stButton button { width: 100%; font-weight: bold; border-radius: 8px; }
-        .map-card { border: 1px solid #444; border-radius: 8px; overflow: hidden; margin-bottom: 10px; background: #222; }
-        .map-card img { width: 100%; display: block; }
-        .map-name { text-align: center; padding: 5px; font-weight: bold; color: white; }
+        .stButton button { width: 100%; font-weight: bold; border-radius: 8px; min-height: 50px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -69,7 +69,7 @@ def render_mobile_vote_page(token):
 
     cap_name, current_vote = row
 
-    st.markdown(f"<h2 style='text-align:center;'>👑 Captain {cap_name}</h2>", unsafe_allow_html=True)
+    st.markdown(f"<h3 style='text-align:center;'>👑 {cap_name}</h3>", unsafe_allow_html=True)
 
     # 2. VOTE PHASE
     if current_vote == "Waiting":
@@ -87,8 +87,8 @@ def render_mobile_vote_page(token):
     rem, prot, turn_team = get_veto_state()
     
     if not rem: 
-        st.success("✅ Waiting for Host/Opponent...")
-        time.sleep(3)
+        st.success("✅ Veto Complete! Check Host Screen.")
+        time.sleep(5) # Slow down refresh when done
         st.rerun()
 
     # Determine My Team
@@ -99,59 +99,45 @@ def render_mobile_vote_page(token):
     my_team_name = n_a if cap_name in t1_json else n_b
     opp_team_name = n_b if my_team_name == n_a else n_a
 
-    # Determine Captain Names for display
-    # We need to query DB or infer from draft state to map Team Name -> Captain Name
-    # Since we are on mobile, we can rely on `cap_name` being me.
-    # We just need to know if it's MY turn.
-
     # 4. VETO PHASE INTERFACE
     st.divider()
     if turn_team == my_team_name:
-        st.markdown(f"<h3 style='color:#4da6ff; text-align:center;'>👉 YOUR TURN</h3>", unsafe_allow_html=True)
+        st.markdown(f"<h4 style='color:#4da6ff; text-align:center;'>👉 YOUR TURN</h4>", unsafe_allow_html=True)
         
         is_protection_phase = (len(prot) < 2)
-        action_text = "PICK (PROTECT)" if is_protection_phase else "BAN"
+        action_text = "PICK" if is_protection_phase else "BAN"
         btn_color = "primary" if is_protection_phase else "secondary"
         
         st.write(f"**Action: {action_text}**")
         
-        # Display Maps Grid
+        # Grid layout for maps
         cols = st.columns(2)
         for i, m in enumerate(rem):
             with cols[i % 2]:
-                st.image(MAP_LOGOS.get(m, ""), use_container_width=True)
+                # --- FIX: Smaller images for mobile ---
+                st.image(MAP_LOGOS.get(m, ""), width=100) 
                 if st.button(f"{action_text} {m}", key=f"mob_{m}", type=btn_color, use_container_width=True):
                     # EXECUTE ACTION
                     if is_protection_phase:
                         prot.append(m)
                     
-                    # Remove from remaining
                     rem.remove(m)
                     
-                    # Check if Veto Complete (Only 1 map left and bans done)
+                    # Check if Veto Complete
                     if len(rem) == 1 and not is_protection_phase:
-                        # LOGIC FIX: The last map standing is the played map
                         final_map = rem[0]
-                        final_three = prot + [final_map] # Maps to play
+                        final_three = prot + [final_map]
                         
-                        # 1. Update Main DB
+                        # Update DB with final result
                         update_draft_map(final_three)
-                        
-                        # 2. Clear Veto State (signals completion)
-                        init_veto_state([], "") 
+                        init_veto_state([], "") # Clear veto state
                     else:
-                        # Pass Turn
                         update_veto_turn(rem, prot, opp_team_name)
                     
                     st.rerun()
     else:
         st.warning(f"⏳ Opponent is thinking...")
-        st.write(f"**Remaining Maps:**")
-        # Show remaining maps passively
-        m_cols = st.columns(3)
-        for i, m in enumerate(rem):
-             with m_cols[i%3]:
-                 st.image(MAP_LOGOS.get(m, ""), caption=m)
+        st.caption("Waiting for their move...")
         time.sleep(2)
         st.rerun()
 
@@ -175,12 +161,11 @@ def render_veto_fragment(name_a, name_b, cap1_name, cap2_name):
 
     # Veto Done Check
     if not rem:
-        st.success("✅ Veto Complete! Check Map Queue.")
+        # State is cleared, trigger main page update
         st.session_state.veto_complete_trigger = True
         st.rerun()
         return
 
-    # Map Team Name to Captain Name for Display
     turn_captain = cap1_name if turn_team == name_a else cap2_name
     
     phase = "PICKING (PROTECT)" if len(prot) < 2 else "BANNING"
@@ -255,7 +240,6 @@ def render_voting_fragment(t1, t2, name_a, name_b):
 
         if "Waiting" not in votes and len(votes) == 2 and all(v == "Approve" for v in votes):
              st.success("🎉 Teams Approved!")
-             # RESTORED: SEND TEAMS TO DISCORD
              send_teams_to_discord(name_a, t1, name_b, t2)
              st.session_state.vote_completed = True
              st.rerun()
@@ -307,9 +291,15 @@ if st.session_state.get("trigger_reroll", False):
     st.session_state.maps_sent_to_discord = False
     st.rerun()
 
-# --- HANDLE VETO COMPLETE TRIGGER ---
+# --- FIX: HANDLE VETO COMPLETE & STATE SYNC ---
 if st.session_state.get("veto_complete_trigger", False):
     st.session_state.veto_complete_trigger = False
+    # FORCE RELOAD FROM DB TO UNSTUCK MAIN PAGE
+    saved = load_draft_state()
+    if saved:
+         # Index 6 is current_map from DB
+         if saved[6]: 
+             st.session_state.global_map_pick = saved[6]
     st.rerun()
 
 st.markdown("""
@@ -421,7 +411,7 @@ with tabs[0]:
                 if rc3.button("🔄 Full Reset", type="primary", use_container_width=True):
                     clear_draft_state(); clear_lobby_link(); st.session_state.clear(); st.session_state.maps_sent_to_discord = False; st.rerun()
 
-        # RESTORED: CYBERSHOKE AUTO-CREATE
+        # --- LOBBY & LINK DISPLAY (Runs after Veto is done) ---
         active_lobby = get_lobby_link()
         if st.session_state.global_map_pick and not active_lobby:
              with st.spinner("🤖 Automatically creating Cybershoke lobby..."):
@@ -531,6 +521,7 @@ with tabs[0]:
         if st.session_state.revealed and not st.session_state.get("vote_completed", False):
             render_voting_fragment(t1, t2, name_a, name_b)
 
+        # Only show Veto Fragment if vote is done AND map is NOT picked yet
         if st.session_state.get("vote_completed", False) and not st.session_state.global_map_pick:
             render_veto_fragment(name_a, name_b, cap1_name, cap2_name)
 
