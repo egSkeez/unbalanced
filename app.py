@@ -8,14 +8,13 @@ import uuid
 import socket
 import qrcode
 import io
-import json #
+import json
 from constants import SKEEZ_TITLES, TEAM_NAMES, MAP_POOL, MAP_LOGOS
-# Corrected imports based on your file structure
 from database import (init_db, get_player_stats, update_elo, set_draft_pins, submit_vote, 
                       get_vote_status, save_draft_state, load_draft_state, clear_draft_state, 
                       update_draft_map, init_veto_state, get_veto_state, update_veto_turn)
 from logic import get_best_combinations, pick_captains, cycle_new_captain
-from wheel import render_bench_wheel
+from wheel import render_bench_wheel  # Ensure this is imported
 from cybershoke import init_cybershoke_db, set_lobby_link, get_lobby_link, clear_lobby_link, create_cybershoke_lobby_api
 from discord_bot import send_teams_to_discord, send_lobby_to_discord, send_maps_to_discord
 
@@ -49,7 +48,6 @@ def generate_qr(url):
 def render_mobile_vote_page(token):
     st.set_page_config(page_title="Captain Portal", layout="centered")
     
-    # Custom CSS for better mobile buttons
     st.markdown("""
     <style>
         .stButton button { width: 100%; font-weight: bold; border-radius: 8px; min-height: 50px; }
@@ -88,7 +86,7 @@ def render_mobile_vote_page(token):
     
     if not rem: 
         st.success("✅ Veto Complete! Check Host Screen.")
-        time.sleep(5) # Slow down refresh when done
+        time.sleep(5)
         st.rerun()
 
     # Determine My Team
@@ -110,11 +108,9 @@ def render_mobile_vote_page(token):
         
         st.write(f"**Action: {action_text}**")
         
-        # Grid layout for maps
         cols = st.columns(2)
         for i, m in enumerate(rem):
             with cols[i % 2]:
-                # --- FIX: Smaller images for mobile ---
                 st.image(MAP_LOGOS.get(m, ""), width=100) 
                 if st.button(f"{action_text} {m}", key=f"mob_{m}", type=btn_color, use_container_width=True):
                     # EXECUTE ACTION
@@ -123,14 +119,11 @@ def render_mobile_vote_page(token):
                     
                     rem.remove(m)
                     
-                    # Check if Veto Complete
                     if len(rem) == 1 and not is_protection_phase:
                         final_map = rem[0]
                         final_three = prot + [final_map]
-                        
-                        # Update DB with final result
                         update_draft_map(final_three)
-                        init_veto_state([], "") # Clear veto state
+                        init_veto_state([], "") 
                     else:
                         update_veto_turn(rem, prot, opp_team_name)
                     
@@ -146,7 +139,6 @@ def render_mobile_vote_page(token):
 # ==========================================
 @st.fragment(run_every=2)
 def render_veto_fragment(name_a, name_b, cap1_name, cap2_name):
-    # READ DB STATE
     rem, prot, turn_team = get_veto_state()
     
     if rem is None:
@@ -159,9 +151,7 @@ def render_veto_fragment(name_a, name_b, cap1_name, cap2_name):
             st.rerun()
         return
 
-    # Veto Done Check
     if not rem:
-        # State is cleared, trigger main page update
         st.session_state.veto_complete_trigger = True
         st.rerun()
         return
@@ -269,7 +259,6 @@ if 'revealed' not in st.session_state: st.session_state.revealed = False
 if 'global_map_pick' not in st.session_state: st.session_state.global_map_pick = None
 if 'maps_sent_to_discord' not in st.session_state: st.session_state.maps_sent_to_discord = False
 
-# --- HANDLE REROLL TRIGGER ---
 if st.session_state.get("trigger_reroll", False):
     st.session_state.trigger_reroll = False
     current_players = [p for p in player_df['name'] if p in st.session_state.get("current_selection", [])]
@@ -291,13 +280,10 @@ if st.session_state.get("trigger_reroll", False):
     st.session_state.maps_sent_to_discord = False
     st.rerun()
 
-# --- FIX: HANDLE VETO COMPLETE & STATE SYNC ---
 if st.session_state.get("veto_complete_trigger", False):
     st.session_state.veto_complete_trigger = False
-    # FORCE RELOAD FROM DB TO UNSTUCK MAIN PAGE
     saved = load_draft_state()
     if saved:
-         # Index 6 is current_map from DB
          if saved[6]: 
              st.session_state.global_map_pick = saved[6]
     st.rerun()
@@ -321,7 +307,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- GLOBAL SYNC ---
 if 'teams_locked' not in st.session_state or not st.session_state.teams_locked:
     saved_draft = load_draft_state()
     if saved_draft:
@@ -411,7 +396,6 @@ with tabs[0]:
                 if rc3.button("🔄 Full Reset", type="primary", use_container_width=True):
                     clear_draft_state(); clear_lobby_link(); st.session_state.clear(); st.session_state.maps_sent_to_discord = False; st.rerun()
 
-        # --- LOBBY & LINK DISPLAY (Runs after Veto is done) ---
         active_lobby = get_lobby_link()
         if st.session_state.global_map_pick and not active_lobby:
              with st.spinner("🤖 Automatically creating Cybershoke lobby..."):
@@ -517,15 +501,12 @@ with tabs[0]:
         st.markdown(f"<br><div style='text-align: center; color: #77dd77; font-size: 0.9em;'>Total Metric Gap: {gap}</div>", unsafe_allow_html=True)
         st.divider()
 
-        # --- LIVE FRAGMENTS (VOTING & VETO) ---
         if st.session_state.revealed and not st.session_state.get("vote_completed", False):
             render_voting_fragment(t1, t2, name_a, name_b)
 
-        # Only show Veto Fragment if vote is done AND map is NOT picked yet
         if st.session_state.get("vote_completed", False) and not st.session_state.global_map_pick:
             render_veto_fragment(name_a, name_b, cap1_name, cap2_name)
 
-        # --- MATCH COMPLETE VIEW ---
         if st.session_state.global_map_pick and st.session_state.admin_authenticated:
              st.divider()
              rc1, rc2 = st.columns(2)
@@ -545,7 +526,19 @@ with tabs[0]:
                  st.rerun()
 
 with tabs[1]:
-    render_bench_wheel(player_df['name'].tolist())
+    # Determine the pool of players for the wheel
+    if st.session_state.teams_locked and st.session_state.final_teams:
+        # If draft is locked, use the 10 players from the draft
+        t1, t2, _, _, _ = st.session_state.final_teams
+        wheel_pool = t1 + t2
+    elif "current_selection" in st.session_state and st.session_state.current_selection:
+        # If selecting players, use the currently selected ones
+        wheel_pool = st.session_state.current_selection
+    else:
+        # Fallback to everyone
+        wheel_pool = player_df['name'].tolist()
+
+    render_bench_wheel(wheel_pool)
 
 with tabs[2]:
     st.title("📜 History")
