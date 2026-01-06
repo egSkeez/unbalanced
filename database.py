@@ -27,6 +27,10 @@ def init_db():
                  (id INTEGER PRIMARY KEY, t1_json TEXT, t2_json TEXT, 
                   name_a TEXT, name_b TEXT, avg1 REAL, avg2 REAL, current_map TEXT)''')
     
+    # NEW: Table for Live Veto Sync
+    c.execute('''CREATE TABLE IF NOT EXISTS active_veto_state 
+                 (id INTEGER PRIMARY KEY, remaining_maps TEXT, protected_maps TEXT, current_turn TEXT)''')
+
     try:
         c.execute("ALTER TABLE active_draft_state ADD COLUMN current_map TEXT")
     except:
@@ -38,12 +42,11 @@ def init_db():
             c.execute("INSERT INTO players VALUES (?, ?, ?, ?, ?, ?)", 
                       (name, d['elo'], d['aim'], d['util'], d['team'], "cs2pro"))
     
-    # Force lowercase secrets
     c.execute("UPDATE players SET secret_word = lower(name)")
-    
     conn.commit()
     conn.close()
 
+# --- EXISTING DRAFT FUNCTIONS (Unchanged) ---
 def save_draft_state(t1, t2, name_a, name_b, avg1, avg2):
     conn = sqlite3.connect('cs2_history.db')
     c = conn.cursor()
@@ -74,9 +77,43 @@ def clear_draft_state():
     conn = sqlite3.connect('cs2_history.db')
     conn.execute("DELETE FROM active_draft_state")
     conn.execute("DELETE FROM current_draft_votes")
+    conn.execute("DELETE FROM active_veto_state") # Clear Veto too
     conn.commit()
     conn.close()
 
+# --- NEW: VETO STATE FUNCTIONS ---
+def init_veto_state(maps, turn_team):
+    conn = sqlite3.connect('cs2_history.db')
+    conn.execute("DELETE FROM active_veto_state")
+    # Store lists as comma-separated strings
+    maps_str = ",".join(maps)
+    conn.execute("INSERT INTO active_veto_state (id, remaining_maps, protected_maps, current_turn) VALUES (1, ?, ?, ?)",
+                 (maps_str, "", turn_team))
+    conn.commit()
+    conn.close()
+
+def get_veto_state():
+    conn = sqlite3.connect('cs2_history.db')
+    c = conn.cursor()
+    c.execute("SELECT remaining_maps, protected_maps, current_turn FROM active_veto_state WHERE id=1")
+    row = c.fetchone()
+    conn.close()
+    if row:
+        rem = row[0].split(",") if row[0] else []
+        prot = row[1].split(",") if row[1] else []
+        return rem, prot, row[2]
+    return None, None, None
+
+def update_veto_turn(remaining, protected, next_turn):
+    conn = sqlite3.connect('cs2_history.db')
+    rem_str = ",".join(remaining)
+    prot_str = ",".join(protected)
+    conn.execute("UPDATE active_veto_state SET remaining_maps=?, protected_maps=?, current_turn=? WHERE id=1",
+                 (rem_str, prot_str, next_turn))
+    conn.commit()
+    conn.close()
+
+# --- EXISTING PLAYER/MATCH FUNCTIONS ---
 def get_player_stats():
     conn = sqlite3.connect('cs2_history.db')
     df = pd.read_sql_query("SELECT *, (aim+util+team_play)/3 as overall FROM players ORDER BY elo DESC", conn)
@@ -128,7 +165,6 @@ def submit_vote(secret_attempt, vote_choice):
 
 def get_vote_status():
     conn = sqlite3.connect('cs2_history.db')
-    # FIX: Added ORDER BY to ensure v1 and v2 don't swap places randomly
     df = pd.read_sql_query("SELECT * FROM current_draft_votes ORDER BY captain_name", conn)
     conn.close()
     return df
