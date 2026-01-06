@@ -13,7 +13,7 @@ from discord_bot import send_teams_to_discord, send_lobby_to_discord, send_maps_
 from utils import generate_qr, get_local_ip
 
 ROOMMATES = ["Chajra", "Ghoufa"]
-QR_BASE_URL = "http://192.168.1.200:8501"
+QR_BASE_URL = "https://unbalanced-wac3gydqklzbeeuomp6adp.streamlit.app/"
 
 def render_comparision_row(label, val1, val2):
     row_c1, row_c2, row_c3 = st.columns([1, 4, 1])

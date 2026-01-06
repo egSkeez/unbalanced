@@ -18,22 +18,20 @@ def get_headers():
 
 def create_cybershoke_lobby_api():
     """
-    Creates a lobby using the real Cybershoke API/Requests with the new cookie.
+    Creates a lobby using the real Cybershoke API.
+    If it fails, returns None (instead of a fake link) so you can create it manually.
     """
-    url = "https://cybershoke.net/api/lobby/create"  # Standard creation endpoint
+    url = "https://cybershoke.net/api/lobby/create"
     
-    # You may need to adjust payload based on exact server type you want (e.g., Retake, 5v5)
-    # This is a generic payload for a private 5v5 lobby
     payload = {
-        "server": "eu",     # Region
-        "mode": "cs2_5x5",  # Mode (check cybershoke for specific mode codes if this fails)
-        "map": "de_mirage", # Default map, can be changed later
+        "server": "eu",     
+        "mode": "cs2_5x5",  
+        "map": "de_mirage", 
         "private": 1,
         "password": "kimkim"
     }
 
     try:
-        # 1. Try Real Request
         response = requests.post(url, headers=get_headers(), data=payload, timeout=10)
         
         if response.status_code == 200:
@@ -43,24 +41,23 @@ def create_cybershoke_lobby_api():
             elif 'id' in data:
                 return f"https://cybershoke.net/lobby/{data['id']}"
             else:
-                print("API Success but no URL found:", data)
+                print("API Success but no URL found in response:", data)
+                return None
         else:
-            print(f"Cybershoke API Error: {response.status_code} - {response.text}")
+            print(f"Cybershoke API Failed: {response.status_code}")
+            # print(response.text) # Uncomment to debug exact error
+            return None
 
     except Exception as e:
         print(f"Request failed: {e}")
-
-    # 2. Fallback to Mock if API fails (so app doesn't crash)
-    print("⚠️ Falling back to mock lobby link due to API failure.")
-    lobby_id = str(random.randint(10000, 99999))
-    return f"https://cybershoke.net/lobby/{lobby_id}"
+        return None
 
 def init_cybershoke_db():
     pass
 
 # --- DB PERSISTENCE FUNCTIONS ---
 def set_lobby_link(link):
-    """Saves the lobby link to the database so we don't create it again."""
+    """Saves the lobby link to the database."""
     conn = sqlite3.connect('cs2_history.db')
     try:
         conn.execute("UPDATE active_draft_state SET current_lobby=? WHERE id=1", (link,))
