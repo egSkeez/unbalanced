@@ -47,6 +47,15 @@ def generate_qr(url):
 def render_mobile_vote_page(token):
     st.set_page_config(page_title="Captain Portal", layout="centered")
     
+    st.markdown("""
+    <style>
+        .stButton button { width: 100%; font-weight: bold; border-radius: 8px; }
+        .map-card { border: 1px solid #444; border-radius: 8px; overflow: hidden; margin-bottom: 10px; background: #222; }
+        .map-card img { width: 100%; display: block; }
+        .map-name { text-align: center; padding: 5px; font-weight: bold; color: white; }
+    </style>
+    """, unsafe_allow_html=True)
+
     # 1. AUTH CHECK
     conn = sqlite3.connect('cs2_history.db')
     c = conn.cursor()
@@ -75,10 +84,9 @@ def render_mobile_vote_page(token):
         return
 
     # 3. CHECK VETO STATE
-    rem, prot, turn = get_veto_state()
+    rem, prot, turn_team = get_veto_state()
     
     if not rem: 
-        # No veto active yet, or veto finished
         st.success("✅ Waiting for Host/Opponent...")
         time.sleep(3)
         st.rerun()
@@ -91,33 +99,45 @@ def render_mobile_vote_page(token):
     my_team_name = n_a if cap_name in t1_json else n_b
     opp_team_name = n_b if my_team_name == n_a else n_a
 
+    # Determine Captain Names for display
+    # We need to query DB or infer from draft state to map Team Name -> Captain Name
+    # Since we are on mobile, we can rely on `cap_name` being me.
+    # We just need to know if it's MY turn.
+
     # 4. VETO PHASE INTERFACE
     st.divider()
-    if turn == my_team_name:
+    if turn_team == my_team_name:
         st.markdown(f"<h3 style='color:#4da6ff; text-align:center;'>👉 YOUR TURN</h3>", unsafe_allow_html=True)
         
-        # LOGIC: Protection Phase or Ban Phase?
         is_protection_phase = (len(prot) < 2)
         action_text = "PICK (PROTECT)" if is_protection_phase else "BAN"
+        btn_color = "primary" if is_protection_phase else "secondary"
+        
         st.write(f"**Action: {action_text}**")
         
+        # Display Maps Grid
         cols = st.columns(2)
         for i, m in enumerate(rem):
             with cols[i % 2]:
-                if st.button(f"{action_text} {m}", key=f"mob_{m}", use_container_width=True):
+                st.image(MAP_LOGOS.get(m, ""), use_container_width=True)
+                if st.button(f"{action_text} {m}", key=f"mob_{m}", type=btn_color, use_container_width=True):
                     # EXECUTE ACTION
                     if is_protection_phase:
                         prot.append(m)
                     
-                    # Remove from remaining in both cases (Pick means it's taken, Ban means it's gone)
+                    # Remove from remaining
                     rem.remove(m)
                     
-                    # Check if Veto Complete
+                    # Check if Veto Complete (Only 1 map left and bans done)
                     if len(rem) == 1 and not is_protection_phase:
-                        # Final Map Found
-                        final_three = prot + rem
-                        update_draft_map(final_three) # Triggers Main App Completion
-                        # Clear Veto State to stop mobile refresh
+                        # LOGIC FIX: The last map standing is the played map
+                        final_map = rem[0]
+                        final_three = prot + [final_map] # Maps to play
+                        
+                        # 1. Update Main DB
+                        update_draft_map(final_three)
+                        
+                        # 2. Clear Veto State (signals completion)
                         init_veto_state([], "") 
                     else:
                         # Pass Turn
@@ -125,8 +145,13 @@ def render_mobile_vote_page(token):
                     
                     st.rerun()
     else:
-        st.warning(f"⏳ Waiting for {opp_team_name}...")
-        st.write(f"**Remaining:** {', '.join(rem)}")
+        st.warning(f"⏳ Opponent is thinking...")
+        st.write(f"**Remaining Maps:**")
+        # Show remaining maps passively
+        m_cols = st.columns(3)
+        for i, m in enumerate(rem):
+             with m_cols[i%3]:
+                 st.image(MAP_LOGOS.get(m, ""), caption=m)
         time.sleep(2)
         st.rerun()
 
@@ -136,11 +161,10 @@ def render_mobile_vote_page(token):
 @st.fragment(run_every=2)
 def render_veto_fragment(name_a, name_b, cap1_name, cap2_name):
     # READ DB STATE
-    rem, prot, turn = get_veto_state()
+    rem, prot, turn_team = get_veto_state()
     
     if rem is None:
         st.info("Waiting for coin flip to start Veto...")
-        # Coin Flip Logic
         if st.button("🪙 Flip Coin to Start Veto", use_container_width=True):
             winner = random.choice([name_a, name_b])
             init_veto_state(MAP_POOL.copy(), winner)
@@ -149,19 +173,21 @@ def render_veto_fragment(name_a, name_b, cap1_name, cap2_name):
             st.rerun()
         return
 
-    # If Veto is done (empty list in DB but current_map set in draft)
+    # Veto Done Check
     if not rem:
         st.success("✅ Veto Complete! Check Map Queue.")
         st.session_state.veto_complete_trigger = True
         st.rerun()
         return
 
-    # RENDER VETO BOARD
+    # Map Team Name to Captain Name for Display
+    turn_captain = cap1_name if turn_team == name_a else cap2_name
+    
     phase = "PICKING (PROTECT)" if len(prot) < 2 else "BANNING"
     st.markdown(f"""
         <div class="turn-indicator">
             {phase} <br>
-            Current Turn: <span style="color: #4da6ff;">{turn}</span>
+            Current Turn: <span style="color: #4da6ff;">{turn_captain}</span>
         </div>
     """, unsafe_allow_html=True)
     
@@ -169,23 +195,19 @@ def render_veto_fragment(name_a, name_b, cap1_name, cap2_name):
         st.write(f"**Protected:** {', '.join(prot)}")
 
     cols = st.columns(7)
-    # Display ALL maps, gray out banned ones
     for i, m in enumerate(MAP_POOL):
         with cols[i]:
             is_avail = m in rem
             is_prot = m in prot
-            
-            # Opacity logic
             opacity = "1.0" if is_avail or is_prot else "0.2"
             border = "2px solid #00E500" if is_prot else "1px solid #333"
             
             st.markdown(f"""
             <div style="opacity: {opacity}; border: {border}; padding: 5px; border-radius: 5px; text-align: center;">
                 <img src="{MAP_LOGOS.get(m, '')}" style="width: 100%; border-radius: 5px;">
-                <div style="font-size: 0.8em; font-weight: bold; margin-top: 5px;">{m}</div>
+                <div style="font-size: 0.8em; font-weight: bold; margin-top: 5px; color: white;">{m}</div>
             </div>
             """, unsafe_allow_html=True)
-
 
 # ==========================================
 # FRAGMENT: VOTING & QR
@@ -233,6 +255,8 @@ def render_voting_fragment(t1, t2, name_a, name_b):
 
         if "Waiting" not in votes and len(votes) == 2 and all(v == "Approve" for v in votes):
              st.success("🎉 Teams Approved!")
+             # RESTORED: SEND TEAMS TO DISCORD
+             send_teams_to_discord(name_a, t1, name_b, t2)
              st.session_state.vote_completed = True
              st.rerun()
 
@@ -285,7 +309,6 @@ if st.session_state.get("trigger_reroll", False):
 
 # --- HANDLE VETO COMPLETE TRIGGER ---
 if st.session_state.get("veto_complete_trigger", False):
-    # This just ensures we break out of the fragment and refresh main layout
     st.session_state.veto_complete_trigger = False
     st.rerun()
 
@@ -398,6 +421,7 @@ with tabs[0]:
                 if rc3.button("🔄 Full Reset", type="primary", use_container_width=True):
                     clear_draft_state(); clear_lobby_link(); st.session_state.clear(); st.session_state.maps_sent_to_discord = False; st.rerun()
 
+        # RESTORED: CYBERSHOKE AUTO-CREATE
         active_lobby = get_lobby_link()
         if st.session_state.global_map_pick and not active_lobby:
              with st.spinner("🤖 Automatically creating Cybershoke lobby..."):
@@ -409,6 +433,7 @@ with tabs[0]:
                      st.rerun()
                  else:
                      st.error("Auto-creation failed. Use Admin tab to create manually.")
+
         if active_lobby and st.session_state.global_map_pick:
             st.markdown(f"""<div class="cs-box"><div class="cs-title">🚀 CYBERSHOKE LOBBY READY</div><p style="color:white; font-family: monospace; font-size: 1.1em;">{active_lobby} <br> <span style="color: #FFD700; font-weight: bold;">Password: kimkim</span></p><a href="{active_lobby}" target="_blank"><button style="background-color: #00E500; color: black; border: none; padding: 10px 20px; font-weight: bold; border-radius: 5px; cursor: pointer; width: 100%;">▶️ JOIN SERVER</button></a></div>""", unsafe_allow_html=True)
             if st.session_state.admin_authenticated and st.button("🗑️ Clear Link (Admin)"): clear_lobby_link(); st.rerun()
