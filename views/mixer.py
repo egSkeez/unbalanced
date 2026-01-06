@@ -13,7 +13,7 @@ from discord_bot import send_teams_to_discord, send_lobby_to_discord, send_maps_
 from utils import generate_qr, get_local_ip
 
 ROOMMATES = ["Chajra", "Ghoufa"]
-QR_BASE_URL = "https://unbalanced-wac3gydqklzbeeuomp6adp.streamlit.app/"
+QR_BASE_URL = "https://unbalanced-wac3gydqklzbeeuomp6adp.streamlit.app"
 
 def render_comparision_row(label, val1, val2):
     row_c1, row_c2, row_c3 = st.columns([1, 4, 1])
@@ -99,12 +99,22 @@ def render_voting_fragment(t1, t2, name_a, name_b):
             st.rerun()
 
         if "Waiting" not in votes and len(votes) == 2 and all(v == "Approve" for v in votes):
-             # --- FIX: Prevent double Discord send ---
              if not st.session_state.get("vote_completed", False):
                  st.success("🎉 Teams Approved!")
                  send_teams_to_discord(name_a, t1, name_b, t2)
                  st.session_state.vote_completed = True
                  st.rerun()
+
+# --- NEW: Polling fragment to check if admin started draft ---
+@st.fragment(run_every=3)
+def render_waiting_screen():
+    # This just checks if teams are locked in the DB
+    # If they are, it triggers a rerun to refresh the whole page
+    saved = load_draft_state()
+    if saved:
+        st.session_state.teams_locked = True
+        st.rerun()
+    st.info("👋 Waiting for an Admin to start the session...")
 
 def render_mixer_tab(player_df):
     title_text = "🎮 CS2 Draft & Veto"
@@ -114,6 +124,7 @@ def render_mixer_tab(player_df):
     
     if not st.session_state.teams_locked:
         if st.session_state.admin_authenticated:
+            # ADMIN VIEW: Select Players
             current_sel = st.session_state.get("current_selection", [])
             st.write(f"**Players Selected:** `{len(current_sel)}/10`")
             selected = st.multiselect("Select 10 Players:", options=player_df['name'].tolist(), key="current_selection", label_visibility="collapsed")
@@ -140,9 +151,10 @@ def render_mixer_tab(player_df):
                 if col1.button("⚖️ Perfect Balance", use_container_width=True): run_draft("balanced")
                 if col2.button("🎲 Chaos Mode", use_container_width=True): run_draft("chaos")
         else:
-            st.info("👋 Waiting for an Admin to start the session...")
-            time.sleep(2); st.rerun()
+            # NON-ADMIN VIEW: Poll quietly without breaking other tabs
+            render_waiting_screen()
     else:
+        # TEAMS ARE LOCKED - SHOW GAME
         t1_unsorted, t2_unsorted, avg1, avg2, _ = st.session_state.final_teams 
         name_a, name_b = st.session_state.assigned_names
         score_map = dict(zip(player_df['name'], player_df['overall']))
@@ -157,7 +169,6 @@ def render_mixer_tab(player_df):
                 if rc3.button("🔄 Full Reset", type="primary", use_container_width=True):
                     clear_draft_state(); clear_lobby_link(); st.session_state.clear(); st.session_state.maps_sent_to_discord = False; st.rerun()
 
-        # --- FIX: Prevent Double Server Creation ---
         active_lobby = get_lobby_link()
         is_creating = st.session_state.get("lobby_creating", False)
 
@@ -185,7 +196,6 @@ def render_mixer_tab(player_df):
         
         st.divider()
         c1, c2 = st.columns(2)
-        # --- TEAM 1 DISPLAY ---
         with c1: 
             st.markdown(f"<h3 class='team-header-blue'>🟦 {name_a}</h3>", unsafe_allow_html=True)
             st.markdown(f"<div style='text-align: center; font-weight: bold;'>Total Power: {sum1}</div>", unsafe_allow_html=True)
@@ -203,7 +213,6 @@ def render_mixer_tab(player_df):
                              other_row = v_df[v_df['captain_name'] == other_cap].iloc[0]
                              set_draft_pins(new_cap, new_token, other_cap, other_row['pin'])
                              st.toast(f"Captain changed to {new_cap}"); st.rerun()
-        # --- TEAM 2 DISPLAY ---
         with c2: 
             st.markdown(f"<h3 class='team-header-orange'>🟧 {name_b}</h3>", unsafe_allow_html=True)
             st.markdown(f"<div style='text-align: center; font-weight: bold;'>Total Power: {sum2}</div>", unsafe_allow_html=True)
@@ -245,7 +254,6 @@ def render_mixer_tab(player_df):
             if name == cap1_name or name == cap2_name: return f"👑 {name}"
             return name
 
-        # Animation Loop
         if not st.session_state.revealed:
             if 'draft_pins' not in st.session_state:
                 c1_pick, c2_pick = pick_captains(t1, t2)
@@ -286,4 +294,12 @@ def render_mixer_tab(player_df):
                  update_elo(t1, t2, name_a, name_b, 1, maps[0])
                  rem = maps[1:]
                  if rem: update_draft_map(rem); st.session_state.global_map_pick = ",".join(rem); clear_lobby_link()
-                 else: update_draft_map(""); st.session_
+                 else: update_draft_map(""); st.session_state.global_map_pick = ""; clear_lobby_link()
+                 st.rerun()
+             if rc2.button(f"🏆 {name_b} Won Match", use_container_width=True):
+                 maps = st.session_state.global_map_pick.split(",")
+                 update_elo(t1, t2, name_a, name_b, 2, maps[0])
+                 rem = maps[1:]
+                 if rem: update_draft_map(rem); st.session_state.global_map_pick = ",".join(rem); clear_lobby_link()
+                 else: update_draft_map(""); st.session_state.global_map_pick = ""; clear_lobby_link()
+                 st.rerun()
