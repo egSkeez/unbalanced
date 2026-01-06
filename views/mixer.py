@@ -3,6 +3,7 @@ import streamlit as st
 import random
 import time
 import uuid
+import sqlite3 # <--- Added this missing import
 from constants import TEAM_NAMES, MAP_POOL, MAP_LOGOS
 from database import (save_draft_state, load_draft_state, clear_draft_state, 
                       update_draft_map, update_elo, get_vote_status, set_draft_pins,
@@ -13,7 +14,7 @@ from discord_bot import send_teams_to_discord, send_lobby_to_discord, send_maps_
 from utils import generate_qr, get_local_ip
 
 ROOMMATES = ["Chajra", "Ghoufa"]
-QR_BASE_URL = "https://unbalanced-wac3gydqklzbeeuomp6adp.streamlit.app"
+QR_BASE_URL = "https://unbalanced-wac3gydqklzbeeuomp6adp.streamlit.app/"
 
 def render_comparision_row(label, val1, val2):
     row_c1, row_c2, row_c3 = st.columns([1, 4, 1])
@@ -92,7 +93,10 @@ def render_voting_fragment(t1, t2, name_a, name_b):
         votes = v_df['vote'].tolist()
         if "Reroll" in votes:
             st.warning("🔄 Reroll requested...")
-            conn = sqlite3.connect('cs2_history.db'); conn.execute("DELETE FROM current_draft_votes"); conn.commit(); conn.close()
+            conn = sqlite3.connect('cs2_history.db')
+            conn.execute("DELETE FROM current_draft_votes")
+            conn.commit()
+            conn.close()
             if 'draft_pins' in st.session_state: del st.session_state.draft_pins
             st.session_state.revealed = False
             st.session_state.trigger_reroll = True
@@ -105,11 +109,9 @@ def render_voting_fragment(t1, t2, name_a, name_b):
                  st.session_state.vote_completed = True
                  st.rerun()
 
-# --- NEW: Polling fragment to check if admin started draft ---
+# --- Polling fragment to check if admin started draft ---
 @st.fragment(run_every=3)
 def render_waiting_screen():
-    # This just checks if teams are locked in the DB
-    # If they are, it triggers a rerun to refresh the whole page
     saved = load_draft_state()
     if saved:
         st.session_state.teams_locked = True

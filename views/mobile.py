@@ -8,6 +8,13 @@ from database import submit_vote, get_veto_state, load_draft_state, update_draft
 def render_mobile_vote_page(token):
     st.set_page_config(page_title="Captain Portal", layout="centered")
     
+    # --- NEW: Check if this user just requested a reroll ---
+    if st.session_state.get("reroll_submitted", False):
+        st.success("✅ Reroll Requested Successfully!")
+        st.info("The draft is being reset on the main screen.")
+        st.markdown("### 📲 Please scan the NEW QR code.")
+        return
+
     st.markdown("""
     <style>
         .stButton button { width: 100%; font-weight: bold; border-radius: 8px; min-height: 50px; }
@@ -22,8 +29,8 @@ def render_mobile_vote_page(token):
     conn.close()
 
     if not row:
-        st.error("❌ Invalid Token.")
-        st.info("The draft may have been reset. Please ask the host to refresh.")
+        st.error("❌ Token Expired")
+        st.info("The draft has likely been reset or rerolled. Please scan the new QR code on the host screen.")
         return
 
     cap_name, current_vote = row
@@ -37,6 +44,8 @@ def render_mobile_vote_page(token):
             st.rerun()
         if col2.button("❌ REROLL", use_container_width=True):
             submit_vote(token, "Reroll")
+            # --- NEW: Set flag so next refresh shows success message ---
+            st.session_state.reroll_submitted = True
             st.rerun()
         return
 
