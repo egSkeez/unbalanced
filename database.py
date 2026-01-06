@@ -1,3 +1,4 @@
+# database.py
 import sqlite3
 import pandas as pd
 import json
@@ -8,51 +9,49 @@ def init_db():
     conn = sqlite3.connect('cs2_history.db')
     c = conn.cursor()
     
-    # 1. Players Table
     c.execute('''CREATE TABLE IF NOT EXISTS players 
                  (name TEXT PRIMARY KEY, elo REAL, aim REAL, util REAL, team_play REAL, secret_word TEXT)''')
     
-    # Migration for secret_word if needed
     try:
         c.execute("ALTER TABLE players ADD COLUMN secret_word TEXT DEFAULT 'cs2pro'")
     except:
         pass 
 
-    # 2. Matches History
     c.execute('''CREATE TABLE IF NOT EXISTS matches 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, team1_name TEXT, team2_name TEXT,
                   team1_players TEXT, team2_players TEXT, winner_idx INTEGER, 
                   map TEXT, elo_diff REAL, date TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     
-    # 3. Voting System
     c.execute('''CREATE TABLE IF NOT EXISTS current_draft_votes 
                  (captain_name TEXT PRIMARY KEY, pin TEXT, vote TEXT)''')
 
-    # 4. Draft State (Teams)
+    # ADDED: current_lobby column
     c.execute('''CREATE TABLE IF NOT EXISTS active_draft_state 
                  (id INTEGER PRIMARY KEY, t1_json TEXT, t2_json TEXT, 
-                  name_a TEXT, name_b TEXT, avg1 REAL, avg2 REAL, current_map TEXT)''')
+                  name_a TEXT, name_b TEXT, avg1 REAL, avg2 REAL, 
+                  current_map TEXT, current_lobby TEXT)''')
     
-    # 5. Veto State (Map Picks/Bans)
     c.execute('''CREATE TABLE IF NOT EXISTS active_veto_state 
                  (id INTEGER PRIMARY KEY, remaining_maps TEXT, protected_maps TEXT, current_turn TEXT)''')
 
-    # Migration for current_map if needed
+    # Migrations for existing DBs
     try:
         c.execute("ALTER TABLE active_draft_state ADD COLUMN current_map TEXT")
     except:
         pass
 
-    # Populate Initial Players if empty
+    try:
+        c.execute("ALTER TABLE active_draft_state ADD COLUMN current_lobby TEXT")
+    except:
+        pass
+
     c.execute("SELECT COUNT(*) FROM players")
     if c.fetchone()[0] == 0:
         for name, d in PLAYERS_INIT.items():
             c.execute("INSERT INTO players VALUES (?, ?, ?, ?, ?, ?)", 
                       (name, d['elo'], d['aim'], d['util'], d['team'], "cs2pro"))
     
-    # Ensure secrets are set
     c.execute("UPDATE players SET secret_word = lower(name) WHERE secret_word IS NULL OR secret_word = ''")
-    
     conn.commit()
     conn.close()
 
@@ -61,13 +60,13 @@ def save_draft_state(t1, t2, name_a, name_b, avg1, avg2):
     conn = sqlite3.connect('cs2_history.db')
     c = conn.cursor()
     c.execute("DELETE FROM active_draft_state") 
-    c.execute("INSERT INTO active_draft_state (id, t1_json, t2_json, name_a, name_b, avg1, avg2, current_map) VALUES (1, ?, ?, ?, ?, ?, ?, ?)",
-              (json.dumps(t1), json.dumps(t2), name_a, name_b, avg1, avg2, None))
+    # Initialize with NULL current_lobby
+    c.execute("INSERT INTO active_draft_state (id, t1_json, t2_json, name_a, name_b, avg1, avg2, current_map, current_lobby) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)",
+              (json.dumps(t1), json.dumps(t2), name_a, name_b, avg1, avg2, None, None))
     conn.commit()
     conn.close()
 
 def update_draft_map(map_data):
-    # Handles both list (multiple maps) and string (single map/empty)
     val = ",".join(map_data) if isinstance(map_data, list) else map_data
     conn = sqlite3.connect('cs2_history.db')
     conn.execute("UPDATE active_draft_state SET current_map = ? WHERE id = 1", (val,))
@@ -77,11 +76,14 @@ def update_draft_map(map_data):
 def load_draft_state():
     conn = sqlite3.connect('cs2_history.db')
     c = conn.cursor()
-    c.execute("SELECT t1_json, t2_json, name_a, name_b, avg1, avg2, current_map FROM active_draft_state WHERE id=1")
+    c.execute("SELECT t1_json, t2_json, name_a, name_b, avg1, avg2, current_map, current_lobby FROM active_draft_state WHERE id=1")
     row = c.fetchone()
     conn.close()
     if row:
-        return (json.loads(row[0]), json.loads(row[1]), row[2], row[3], row[4], row[5], row[6])
+        # Returns tuple including current_lobby at index 7
+        # Handle cases where row might be shorter if schema wasn't fully updated (fallback)
+        lobby = row[7] if len(row) > 7 else None
+        return (json.loads(row[0]), json.loads(row[1]), row[2], row[3], row[4], row[5], row[6], lobby)
     return None
 
 def clear_draft_state():
@@ -92,7 +94,7 @@ def clear_draft_state():
     conn.commit()
     conn.close()
 
-# --- VETO STATE FUNCTIONS (Mobile Sync) ---
+# --- VETO STATE FUNCTIONS ---
 def init_veto_state(maps, turn_team):
     conn = sqlite3.connect('cs2_history.db')
     conn.execute("DELETE FROM active_veto_state")
@@ -127,8 +129,6 @@ def update_veto_turn(remaining, protected, next_turn):
 def get_player_stats():
     conn = sqlite3.connect('cs2_history.db')
     df = pd.read_sql_query("SELECT *, (aim+util+team_play)/3 as overall FROM players ORDER BY elo DESC", conn)
-    
-    # Calculate Wins/Draws from match history
     try:
         matches = pd.read_sql_query("SELECT team1_players, team2_players, winner_idx FROM matches", conn)
     except:
@@ -136,20 +136,16 @@ def get_player_stats():
     
     df['W'] = 0
     df['D'] = 0
-    
     if not matches.empty:
         for _, match in matches.iterrows():
-            # Parse player lists from strings
             t1 = [p.strip() for p in str(match['team1_players']).split(",")]
             t2 = [p.strip() for p in str(match['team2_players']).split(",")]
-            
             if match['winner_idx'] == 1:
                 df.loc[df['name'].isin(t1), 'W'] += 1
                 df.loc[df['name'].isin(t2), 'D'] += 1
             else:
                 df.loc[df['name'].isin(t2), 'W'] += 1
                 df.loc[df['name'].isin(t1), 'D'] += 1
-
     conn.close()
     return df.sort_values(by="overall", ascending=False)
 
@@ -189,7 +185,6 @@ def get_vote_status():
 def update_elo(t1, t2, name_a, name_b, winner_idx, map_name):
     conn = sqlite3.connect('cs2_history.db')
     c = conn.cursor()
-    # ELO calculation is currently placeholder (0.0 diff), just logging the match
     c.execute("INSERT INTO matches (team1_name, team2_name, team1_players, team2_players, winner_idx, map, elo_diff) VALUES (?, ?, ?, ?, ?, ?, ?)",
               (name_a, name_b, ", ".join(t1), ", ".join(t2), winner_idx, map_name, 0.0))
     conn.commit()

@@ -2,7 +2,7 @@
 import requests
 
 # ⚠️ PASTE YOUR DISCORD WEBHOOK URL HERE
-WEBHOOK_URL = "https://discord.com/api/webhooks/1457771719795409099/xFgRiQifX2JAi245C7-GeJJlv9l9rJ6Tb18FAgWMkioTZWbosmtxWv0FP-YgUZGuB-HX"
+WEBHOOK_URL = "https://discord.com/api/webhooks/1458170671850066041/OFcUkT3XYm2KzufNoItRWVyuwS3GDrKZ3oLMItimyGfVBNRtuRCIeSfpN4hXIo-LRhfo"
 
 def send_discord_message(content):
     if "YOUR_WEBHOOK_URL" in WEBHOOK_URL or not WEBHOOK_URL:
