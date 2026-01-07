@@ -173,7 +173,8 @@ def render_mixer_tab(player_df):
              st.session_state.lobby_creating = True # Lock
              with st.spinner("🤖 Automatically creating Cybershoke lobby..."):
                  try:
-                     auto_link = create_cybershoke_lobby_api()
+                     current_admin = st.session_state.get("admin_user", "Skeez")
+                     auto_link = create_cybershoke_lobby_api(admin_name=current_admin)
                      if auto_link:
                          set_lobby_link(auto_link)
                          # REMOVED AUTO SEND HERE
