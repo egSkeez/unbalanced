@@ -194,7 +194,7 @@ def render_mixer_tab(player_df):
                     send_full_match_info(name_a, t1, name_b, t2, maps, active_lobby)
                     st.toast("✅ Sent to Discord!")
                 
-                if bc2.button("🗑️ Clear Link (Admin)", use_container_width=True): clear_lobby_link(); st.rerun()
+                if bc2.button("✅️ Create New Cybershoke Lobby", use_container_width=True): clear_lobby_link(); st.rerun()
 
         sum1, sum2 = round(avg1 * 5, 2), round(avg2 * 5, 2)
         gap = round(abs(sum1 - sum2), 2)
