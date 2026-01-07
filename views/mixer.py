@@ -3,14 +3,14 @@ import streamlit as st
 import random
 import time
 import uuid
-import sqlite3 # <--- Added this missing import
+import sqlite3
 from constants import TEAM_NAMES, MAP_POOL, MAP_LOGOS
 from database import (save_draft_state, load_draft_state, clear_draft_state, 
                       update_draft_map, update_elo, get_vote_status, set_draft_pins,
                       init_veto_state, get_veto_state)
 from logic import get_best_combinations, pick_captains, cycle_new_captain
 from cybershoke import create_cybershoke_lobby_api, set_lobby_link, get_lobby_link, clear_lobby_link
-from discord_bot import send_teams_to_discord, send_lobby_to_discord, send_maps_to_discord
+from discord_bot import send_full_match_info # <--- Manual Broadcast Function
 from utils import generate_qr, get_local_ip
 
 ROOMMATES = ["Chajra", "Ghoufa"]
@@ -68,9 +68,11 @@ def render_voting_fragment(t1, t2, name_a, name_b):
     st.subheader("📲 Captains: Scan to Vote")
     v_df = get_vote_status()
     if not v_df.empty:
-        qr_c1, qr_c2 = st.columns(2)
+        # Spaced QR Codes
+        qr_c1, _, qr_c2 = st.columns([1, 0.2, 1])
         row_t1 = v_df[v_df['captain_name'].isin(t1)]
         row_t2 = v_df[v_df['captain_name'].isin(t2)]
+        
         with qr_c1:
             if not row_t1.empty:
                 r = row_t1.iloc[0]
@@ -93,10 +95,7 @@ def render_voting_fragment(t1, t2, name_a, name_b):
         votes = v_df['vote'].tolist()
         if "Reroll" in votes:
             st.warning("🔄 Reroll requested...")
-            conn = sqlite3.connect('cs2_history.db')
-            conn.execute("DELETE FROM current_draft_votes")
-            conn.commit()
-            conn.close()
+            conn = sqlite3.connect('cs2_history.db'); conn.execute("DELETE FROM current_draft_votes"); conn.commit(); conn.close()
             if 'draft_pins' in st.session_state: del st.session_state.draft_pins
             st.session_state.revealed = False
             st.session_state.trigger_reroll = True
@@ -105,11 +104,10 @@ def render_voting_fragment(t1, t2, name_a, name_b):
         if "Waiting" not in votes and len(votes) == 2 and all(v == "Approve" for v in votes):
              if not st.session_state.get("vote_completed", False):
                  st.success("🎉 Teams Approved!")
-                 send_teams_to_discord(name_a, t1, name_b, t2)
+                 # REMOVED AUTO SEND TO DISCORD
                  st.session_state.vote_completed = True
                  st.rerun()
 
-# --- Polling fragment to check if admin started draft ---
 @st.fragment(run_every=3)
 def render_waiting_screen():
     saved = load_draft_state()
@@ -126,7 +124,6 @@ def render_mixer_tab(player_df):
     
     if not st.session_state.teams_locked:
         if st.session_state.admin_authenticated:
-            # ADMIN VIEW: Select Players
             current_sel = st.session_state.get("current_selection", [])
             st.write(f"**Players Selected:** `{len(current_sel)}/10`")
             selected = st.multiselect("Select 10 Players:", options=player_df['name'].tolist(), key="current_selection", label_visibility="collapsed")
@@ -153,10 +150,8 @@ def render_mixer_tab(player_df):
                 if col1.button("⚖️ Perfect Balance", use_container_width=True): run_draft("balanced")
                 if col2.button("🎲 Chaos Mode", use_container_width=True): run_draft("chaos")
         else:
-            # NON-ADMIN VIEW: Poll quietly without breaking other tabs
             render_waiting_screen()
     else:
-        # TEAMS ARE LOCKED - SHOW GAME
         t1_unsorted, t2_unsorted, avg1, avg2, _ = st.session_state.final_teams 
         name_a, name_b = st.session_state.assigned_names
         score_map = dict(zip(player_df['name'], player_df['overall']))
@@ -181,8 +176,7 @@ def render_mixer_tab(player_df):
                      auto_link = create_cybershoke_lobby_api()
                      if auto_link:
                          set_lobby_link(auto_link)
-                         map_name = st.session_state.global_map_pick.split(",")[0]
-                         send_lobby_to_discord(auto_link, map_name)
+                         # REMOVED AUTO SEND HERE
                  finally:
                      st.session_state.lobby_creating = False # Unlock
                      st.rerun()
@@ -191,7 +185,16 @@ def render_mixer_tab(player_df):
 
         if active_lobby and st.session_state.global_map_pick:
             st.markdown(f"""<div class="cs-box"><div class="cs-title">🚀 CYBERSHOKE LOBBY READY</div><p style="color:white; font-family: monospace; font-size: 1.1em;">{active_lobby} <br> <span style="color: #FFD700; font-weight: bold;">Password: kimkim</span></p><a href="{active_lobby}" target="_blank"><button style="background-color: #00E500; color: black; border: none; padding: 10px 20px; font-weight: bold; border-radius: 5px; cursor: pointer; width: 100%;">▶️ JOIN SERVER</button></a></div>""", unsafe_allow_html=True)
-            if st.session_state.admin_authenticated and st.button("🗑️ Clear Link (Admin)"): clear_lobby_link(); st.rerun()
+            
+            # --- MANUAL BROADCAST BUTTON ---
+            if st.session_state.admin_authenticated:
+                bc1, bc2 = st.columns(2)
+                if bc1.button("📢 Broadcast to Discord", type="primary", use_container_width=True):
+                    maps = st.session_state.global_map_pick.split(",")
+                    send_full_match_info(name_a, t1, name_b, t2, maps, active_lobby)
+                    st.toast("✅ Sent to Discord!")
+                
+                if bc2.button("🗑️ Clear Link (Admin)", use_container_width=True): clear_lobby_link(); st.rerun()
 
         sum1, sum2 = round(avg1 * 5, 2), round(avg2 * 5, 2)
         gap = round(abs(sum1 - sum2), 2)
@@ -238,8 +241,7 @@ def render_mixer_tab(player_df):
              st.markdown("<h4 style='text-align: center; color: #FFD700;'>🗺️ MAP QUEUE</h4>", unsafe_allow_html=True)
              picked_maps = st.session_state.global_map_pick.split(",")
              if picked_maps and picked_maps[0] != '':
-                 if not st.session_state.maps_sent_to_discord:
-                     send_maps_to_discord(picked_maps); st.session_state.maps_sent_to_discord = True
+                 # REMOVED AUTO SEND HERE
                  m_cols = st.columns(len(picked_maps))
                  for i, m_name in enumerate(picked_maps):
                      with m_cols[i]:
