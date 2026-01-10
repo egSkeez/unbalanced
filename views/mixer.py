@@ -4,6 +4,8 @@ import random
 import time
 import uuid
 import sqlite3
+import os
+import base64
 from constants import TEAM_NAMES, MAP_POOL, MAP_LOGOS
 from database import (save_draft_state, load_draft_state, clear_draft_state, 
                       update_draft_map, update_elo, get_vote_status, set_draft_pins,
@@ -15,6 +17,28 @@ from utils import generate_qr, get_local_ip
 
 ROOMMATES = ["Chajra", "Ghoufa"]
 QR_BASE_URL = "https://unbalanced-wac3gydqklzbeeuomp6adp.streamlit.app/"
+SOUNDS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "sounds")
+
+def play_sound(sound_name):
+    """Play a sound from the assets/sounds directory."""
+    sound_file = os.path.join(SOUNDS_DIR, f"{sound_name}.mp3")
+    if os.path.exists(sound_file):
+        try:
+            # Using data URI to force reload/play can be more reliable for quick cues
+            with open(sound_file, "rb") as f:
+                data = f.read()
+                b64 = base64.b64encode(data).decode()
+                md = f"""
+                    <audio autoplay class="stAudio">
+                    <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
+                    </audio>
+                    """
+                st.markdown(md, unsafe_allow_html=True)
+        except Exception as e:
+            st.warning(f"Audio error: {e}")
+    else:
+        # st.warning(f"Sound file not found: {sound_file}") # Suppress for now
+        pass
 
 def render_comparision_row(label, val1, val2):
     row_c1, row_c2, row_c3 = st.columns([1, 4, 1])
@@ -35,12 +59,13 @@ def render_comparision_row(label, val1, val2):
 def render_veto_fragment(name_a, name_b, cap1_name, cap2_name):
     rem, prot, turn_team = get_veto_state()
     if rem is None:
-        st.info("Waiting for coin flip to start Veto...")
-        if st.button("🪙 Flip Coin to Start Veto", use_container_width=True):
+        # Automate Coin Flip
+        with st.spinner("🪙 Flipping coin to start Veto..."):
+            time.sleep(1) # Small delay for UX
             winner = random.choice([name_a, name_b])
             init_veto_state(MAP_POOL.copy(), winner)
             disp = cap1_name if winner == name_a else cap2_name
-            st.toast(f"Winner: {disp}")
+            st.toast(f"🪙 Coin Flip Winner: {disp}")
             st.rerun()
         return
 
@@ -54,14 +79,41 @@ def render_veto_fragment(name_a, name_b, cap1_name, cap2_name):
     st.markdown(f"""<div class="turn-indicator">{phase} <br>Current Turn: <span style="color: #4da6ff;">{turn_captain}</span></div>""", unsafe_allow_html=True)
     if prot: st.write(f"**Protected:** {', '.join(prot)}")
 
+    # --- AUDIO LOGIC ---
+    if 'last_rem_len' not in st.session_state:
+        st.session_state.last_rem_len = len(rem)
+    
+    # Detect Ban
+    if len(rem) < st.session_state.last_rem_len:
+        if len(rem) == 1:
+            play_sound("fanfare")
+        else:
+            play_sound("ban")
+        st.session_state.last_rem_len = len(rem)
+
     cols = st.columns(7)
     for i, m in enumerate(MAP_POOL):
         with cols[i]:
             is_avail = m in rem
             is_prot = m in prot
-            opacity = "1.0" if is_avail or is_prot else "0.2"
-            border = "2px solid #00E500" if is_prot else "1px solid #333"
-            st.markdown(f"""<div style="opacity: {opacity}; border: {border}; padding: 5px; border-radius: 5px; text-align: center;"><img src="{MAP_LOGOS.get(m, '')}" style="width: 100%; border-radius: 5px;"><div style="font-size: 0.8em; font-weight: bold; margin-top: 5px; color: white;">{m}</div></div>""", unsafe_allow_html=True)
+            
+            if is_avail or is_prot:
+                opacity = "1.0"
+                border = "2px solid #00E500" if is_prot else "1px solid #333"
+                st.markdown(f"""<div style="opacity: {opacity}; border: {border}; padding: 5px; border-radius: 5px; text-align: center;"><img src="{MAP_LOGOS.get(m, '')}" style="width: 100%; border-radius: 5px;"><div style="font-size: 0.8em; font-weight: bold; margin-top: 5px; color: white;">{m}</div></div>""", unsafe_allow_html=True)
+            else:
+                # BANNED VISUAL
+                st.markdown(f"""
+                <div style="position: relative; opacity: 0.4; border: 1px solid #555; padding: 5px; border-radius: 5px; text-align: center; filter: grayscale(100%);">
+                    <img src="{MAP_LOGOS.get(m, '')}" style="width: 100%; border-radius: 5px;">
+                    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-20deg); 
+                                color: #ff4444; font-size: 1.5em; font-weight: 900; 
+                                border: 3px solid #ff4444; padding: 5px 10px; border-radius: 8px;
+                                text-shadow: 2px 2px 0px #000;">
+                        BANNED
+                    </div>
+                    <div style="font-size: 0.8em; font-weight: bold; margin-top: 5px; color: #aaa;">{m}</div>
+                </div>""", unsafe_allow_html=True)
 
 @st.fragment(run_every=2)
 def render_voting_fragment(t1, t2, name_a, name_b):
@@ -117,6 +169,11 @@ def render_waiting_screen():
     st.info("👋 Waiting for an Admin to start the session...")
 
 def render_mixer_tab(player_df):
+    # Check for queued audio from previous interactions (before rerun)
+    if st.session_state.get("audio_cue"):
+        play_sound(st.session_state.audio_cue)
+        del st.session_state.audio_cue
+
     title_text = "🎮 CS2 Draft & Veto"
     if st.session_state.admin_authenticated:
         title_text += f" <span class='admin-badge'>HOST: {st.session_state.admin_user}</span>"
@@ -216,8 +273,8 @@ def render_mixer_tab(player_df):
                              new_cap = cycle_new_captain(t1, old_cap)
                              new_token = str(uuid.uuid4())
                              other_cap = next((c for c in caps if c not in t1), None)
-                             other_row = v_df[v_df['captain_name'] == other_cap].iloc[0]
                              set_draft_pins(new_cap, new_token, other_cap, other_row['pin'])
+                             st.session_state.audio_cue = "captain_pick"
                              st.toast(f"Captain changed to {new_cap}"); st.rerun()
         with c2: 
             st.markdown(f"<h3 class='team-header-orange'>🟧 {name_b}</h3>", unsafe_allow_html=True)
@@ -235,6 +292,7 @@ def render_mixer_tab(player_df):
                              other_cap = next((c for c in caps if c not in t2), None)
                              other_row = v_df[v_df['captain_name'] == other_cap].iloc[0]
                              set_draft_pins(other_cap, other_row['pin'], new_cap, new_token)
+                             st.session_state.audio_cue = "captain_pick"
                              st.toast(f"Captain changed to {new_cap}"); st.rerun()
         
         if st.session_state.global_map_pick:
@@ -270,7 +328,10 @@ def render_mixer_tab(player_df):
             for i in range(5):
                 time.sleep(0.4); p1_holders[i].info(format_player(t1[i]))
                 time.sleep(0.4); p2_holders[i].warning(format_player(t2[i]))
-            st.session_state.revealed = True; st.rerun()
+            
+            st.session_state.revealed = True
+            st.session_state.audio_cue = "captain_pick"
+            st.rerun()
         else:
             for i in range(5):
                 p1_holders[i].info(format_player(t1[i]))

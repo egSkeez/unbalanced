@@ -79,16 +79,26 @@ def render_mobile_vote_page(token):
 
     st.divider()
     if turn_team == my_team_name:
-        st.markdown(f"<h4 style='color:#4da6ff; text-align:center;'>👉 YOUR TURN</h4>", unsafe_allow_html=True)
         is_protection_phase = (len(prot) < 2)
-        action_text = "PICK" if is_protection_phase else "BAN"
-        btn_color = "primary" if is_protection_phase else "secondary"
-        st.write(f"**Action: {action_text}**")
+        action_text = "PICK (PROTECT)" if is_protection_phase else "BAN (REMOVE)"
+        bg_color = "#2aa02a" if is_protection_phase else "#ff4444"
+        
+        st.markdown(f"""
+        <div style="background-color: {bg_color}; padding: 15px; border-radius: 10px; margin-bottom: 20px; text-align: center; border: 2px solid white;">
+            <h2 style="color: white; margin: 0; text-shadow: 1px 1px 2px black;">{action_text}</h2>
+            <p style="color: white; margin: 0;">Tap a map below to {action_text.split()[0]}</p>
+        </div>
+        """, unsafe_allow_html=True)
+
         cols = st.columns(2)
         for i, m in enumerate(rem):
             with cols[i % 2]:
-                st.image(MAP_LOGOS.get(m, ""), width=50) 
-                if st.button(f"{action_text} {m}", key=f"mob_{m}", type=btn_color, use_container_width=True):
+                st.markdown(f"""<div style="display: flex; justify-content: center; margin-bottom: 5px;">
+                    <img src="{MAP_LOGOS.get(m, '')}" style="width: 80px; border-radius: 5px;">
+                    </div>""", unsafe_allow_html=True)
+                
+                # Use a unique key for every button state to avoid conflicts
+                if st.button(f"{m}", key=f"btn_{m}_{i}", use_container_width=True, type="primary" if is_protection_phase else "secondary"):
                     if is_protection_phase: prot.append(m)
                     rem.remove(m)
                     if len(rem) == 1 and not is_protection_phase:
