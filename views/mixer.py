@@ -40,6 +40,58 @@ def play_sound(sound_name):
         # st.warning(f"Sound file not found: {sound_file}") # Suppress for now
         pass
 
+        # st.warning(f"Sound file not found: {sound_file}") # Suppress for now
+        pass
+
+def render_coin_flip(cap1, cap2, winner_idx):
+    # winner_idx: 0 for cap1, 1 for cap2
+    # If winner is cap1 (Heads), end rotation is 0 (or multiple of 360)
+    # If winner is cap2 (Tails), end rotation is 180 (or 180 + 360)
+    
+    rotations = 5 # 5 full spins
+    base_deg = rotations * 360
+    end_deg = base_deg if winner_idx == 0 else base_deg + 180
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+    <style>
+        body {{ background: transparent; display: flex; justify-content: center; align-items: center; height: 300px; margin: 0; overflow: hidden; }}
+        .coin-container {{ perspective: 1000px; }}
+        .coin {{
+            width: 200px; height: 200px; position: relative; transform-style: preserve-3d;
+            animation: flip 3s cubic-bezier(0.5, 0, 0.5, 1) forwards;
+        }}
+        .side {{
+            position: absolute; width: 100%; height: 100%; border-radius: 50%;
+            display: flex; justify-content: center; align-items: center;
+            font-family: 'Arial', sans-serif; font-weight: bold; font-size: 24px; color: white;
+            text-align: center; border: 4px solid #FFD700;
+            backface-visibility: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }}
+        .heads {{ background: linear-gradient(135deg, #4da6ff, #0056b3); transform: rotateX(0deg); }}
+        .tails {{ background: linear-gradient(135deg, #ff9f43, #d35400); transform: rotateX(180deg); }}
+        
+        @keyframes flip {{
+            from {{ transform: rotateX(0); }}
+            to {{ transform: rotateX({end_deg}deg); }}
+        }}
+    </style>
+    </head>
+    <body>
+        <div class="coin-container">
+            <div class="coin">
+                <div class="side heads">{cap1}</div>
+                <div class="side tails">{cap2}</div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    import streamlit.components.v1 as components
+    components.html(html, height=320)
+
 def render_comparision_row(label, val1, val2):
     row_c1, row_c2, row_c3 = st.columns([1, 4, 1])
     with row_c1: st.markdown(f"<h3 style='text-align: right; color: #4da6ff; margin:0;'>{int(val1)}</h3>", unsafe_allow_html=True)
@@ -60,9 +112,13 @@ def render_veto_fragment(name_a, name_b, cap1_name, cap2_name):
     rem, prot, turn_team = get_veto_state()
     if rem is None:
         # Automate Coin Flip
-        with st.spinner("🪙 Flipping coin to start Veto..."):
-            time.sleep(1) # Small delay for UX
-            winner = random.choice([name_a, name_b])
+        winner = random.choice([name_a, name_b])
+        winner_idx = 0 if winner == name_a else 1
+        
+        render_coin_flip(cap1_name, cap2_name, winner_idx)
+        
+        with st.spinner("🪙 Flipping coin..."):
+            time.sleep(3.5) # Wait for animation
             init_veto_state(MAP_POOL.copy(), winner)
             disp = cap1_name if winner == name_a else cap2_name
             st.toast(f"🪙 Coin Flip Winner: {disp}")
@@ -118,6 +174,15 @@ def render_veto_fragment(name_a, name_b, cap1_name, cap2_name):
 @st.fragment(run_every=2)
 def render_voting_fragment(t1, t2, name_a, name_b):
     st.subheader("📲 Captains: Scan to Vote")
+    
+    if "show_qr_codes" not in st.session_state: 
+        st.session_state.show_qr_codes = False
+
+    if st.session_state.get("admin_authenticated"):
+        if st.checkbox("Show QR Codes for Captains", value=st.session_state.show_qr_codes, key="chk_show_qr"):
+            st.session_state.show_qr_codes = True
+        else:
+            st.session_state.show_qr_codes = False
     v_df = get_vote_status()
     if not v_df.empty:
         # Spaced QR Codes
@@ -131,8 +196,11 @@ def render_voting_fragment(t1, t2, name_a, name_b):
                 c_name, c_token, c_vote = r['captain_name'], r['pin'], r['vote']
                 st.markdown(f"**{c_name}**")
                 if c_vote == "Waiting":
-                    img = generate_qr(f"{QR_BASE_URL}/?vote_token={c_token}")
-                    st.image(img, width=400, caption="Scan to Vote")
+                    if st.session_state.get("show_qr_codes", False):
+                        img = generate_qr(f"{QR_BASE_URL}/?vote_token={c_token}")
+                        st.image(img, width=400, caption="Scan to Vote")
+                    else:
+                        st.info("👀 QR Code Hidden")
                 else: st.success("🗳️ VOTE RECEIVED")
         with qr_c2:
             if not row_t2.empty:
@@ -140,8 +208,11 @@ def render_voting_fragment(t1, t2, name_a, name_b):
                 c_name, c_token, c_vote = r['captain_name'], r['pin'], r['vote']
                 st.markdown(f"**{c_name}**")
                 if c_vote == "Waiting":
-                    img = generate_qr(f"{QR_BASE_URL}/?vote_token={c_token}")
-                    st.image(img, width=400, caption="Scan to Vote")
+                    if st.session_state.get("show_qr_codes", False):
+                        img = generate_qr(f"{QR_BASE_URL}/?vote_token={c_token}")
+                        st.image(img, width=400, caption="Scan to Vote")
+                    else:
+                        st.info("👀 QR Code Hidden")
                 else: st.success("🗳️ VOTE RECEIVED")
 
         votes = v_df['vote'].tolist()
@@ -196,11 +267,19 @@ def render_mixer_tab(player_df):
                     t1, t2, a1, a2, gap = all_combos[ridx]
                     n_a, n_b = random.sample(TEAM_NAMES, 2)
                     save_draft_state(t1, t2, n_a, n_b, a1, a2)
+                    
+                    # RESTORE MAP IF PRESERVED
+                    if st.session_state.get("preserved_map_pick"):
+                        update_draft_map(st.session_state.preserved_map_pick)
+                        st.session_state.global_map_pick = st.session_state.preserved_map_pick
+                        del st.session_state.preserved_map_pick
+                    else:
+                        st.session_state.global_map_pick = None
+
                     st.session_state.final_teams = all_combos[ridx]
                     st.session_state.assigned_names = (n_a, n_b)
                     st.session_state.teams_locked = True
                     st.session_state.revealed = False
-                    st.session_state.global_map_pick = None
                     if 'draft_pins' in st.session_state: del st.session_state.draft_pins
                     st.rerun()
 
@@ -217,11 +296,20 @@ def render_mixer_tab(player_df):
         
         if st.session_state.admin_authenticated:
             with st.expander("🛠️ Draft Options"):
-                rc1, rc2, rc3 = st.columns(3)
-                if rc1.button("⚖️ Reroll (Balanced)", use_container_width=True): st.session_state.trigger_reroll = True; st.rerun()
-                if rc2.button("🎲 Reroll (Chaos)", use_container_width=True): st.session_state.trigger_reroll = True; st.rerun()
-                if rc3.button("🔄 Full Reset", type="primary", use_container_width=True):
-                    clear_draft_state(); clear_lobby_link(); st.session_state.clear(); st.session_state.maps_sent_to_discord = False; st.rerun()
+                rc1, rc2 = st.columns(2)
+                with rc1:
+                    if st.button("⚖️ Reroll (Balanced)", use_container_width=True): st.session_state.trigger_reroll = True; st.rerun()
+                    if st.button("🏃 Substitute Players", help="Unlock draft to swap players but KEEP the current map/veto.", use_container_width=True):
+                         st.session_state.preserved_map_pick = st.session_state.get("global_map_pick")
+                         clear_draft_state() # Clear DB so app.py doesn't auto-load old teams
+                         st.session_state.teams_locked = False
+                         st.session_state.revealed = False
+                         st.rerun()
+                with rc2:
+                    if st.button("🎲 Reroll (Chaos)", use_container_width=True): st.session_state.trigger_reroll = True; st.rerun()
+                    if st.button("🔄 Full Reset", type="primary", use_container_width=True):
+                        clear_draft_state(); clear_lobby_link(); st.session_state.clear(); st.session_state.maps_sent_to_discord = False; st.rerun()
+
 
         active_lobby = get_lobby_link()
         is_creating = st.session_state.get("lobby_creating", False)
@@ -273,6 +361,7 @@ def render_mixer_tab(player_df):
                              new_cap = cycle_new_captain(t1, old_cap)
                              new_token = str(uuid.uuid4())
                              other_cap = next((c for c in caps if c not in t1), None)
+                             other_row = v_df[v_df['captain_name'] == other_cap].iloc[0]
                              set_draft_pins(new_cap, new_token, other_cap, other_row['pin'])
                              st.session_state.audio_cue = "captain_pick"
                              st.toast(f"Captain changed to {new_cap}"); st.rerun()

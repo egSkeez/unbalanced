@@ -28,5 +28,5 @@ TEAM_NAMES = [
     "Friendly", "Headshot Fel Ras", "Amen Yezzi", "Massadni", "Nikni But Dont Zeus Me", "El Bidha Mon Amour (Couca)"
 ]
 
-MAP_POOL = ["Dust2", "Mirage", "Nuke", "Train", "Overpass", "Ancient", "Inferno"]
+MAP_POOL = ["Dust2", "Mirage", "Nuke", "Anubis", "Overpass", "Ancient", "Inferno"]
 MAP_LOGOS = {m: f"https://raw.githubusercontent.com/MurkyYT/cs2-map-icons/main/images/de_{m.lower()}.png" for m in MAP_POOL}

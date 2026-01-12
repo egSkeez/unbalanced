@@ -45,7 +45,13 @@ if st.session_state.get("trigger_reroll", False):
          t1, t2, _, _, _ = st.session_state.final_teams
          current_players = t1 + t2
     score_map = dict(zip(player_df['name'], player_df['overall']))
-    all_combos = get_best_combinations(current_players, force_split=[], force_together=ROOMMATES)
+    
+    # Force split existing captains if they exist
+    force_captains = []
+    if "draft_pins" in st.session_state and st.session_state.draft_pins:
+        force_captains = list(st.session_state.draft_pins.keys())
+
+    all_combos = get_best_combinations(current_players, force_split=force_captains, force_together=ROOMMATES)
     ridx = random.randint(1, min(50, len(all_combos) - 1))
     nt1, nt2, na1, na2, ngap = all_combos[ridx]
     save_draft_state(nt1, nt2, st.session_state.assigned_names[0], st.session_state.assigned_names[1], na1, na2)

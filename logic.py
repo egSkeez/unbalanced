@@ -61,6 +61,10 @@ def cycle_new_captain(team_list, current_captain):
     if current_captain not in team_list:
         return team_list[0]
     
-    idx = team_list.index(current_captain)
-    new_idx = (idx + 1) % len(team_list)
-    return team_list[new_idx]
+    # Create a list of potential captains excluding the current one
+    candidates = [p for p in team_list if p != current_captain]
+    
+    if not candidates:
+        return current_captain
+        
+    return random.choice(candidates)
