@@ -15,6 +15,7 @@ PLAYERS_INIT = {
     "Zbat": {"aim": 7.5, "util": 4, "team": 5, "elo": 1350},
     "Chajra": {"aim": 5, "util": 3, "team": 4, "elo": 1200},
     "Skan": {"aim": 2, "util": 2, "team": 2, "elo": 900},
+    "Zak": {"aim": 6.5, "util": 6, "team": 6, "elo": 1450}
 }
 
 SKEEZ_TITLES = ["The Best", "The One and Only", "The GOAT", "Headshot Machine", "The Prophet", "Moulay El Malik", "Daddy", "El Ostoura", "Number One", "Unfair", "Ycheati", "The Champ", "Kais Saayed", "El Capo", "El Don", "The problem"]
@@ -25,7 +26,7 @@ TEAM_NAMES = [
     "Wariors Can Dance", "Team Maymesech", "Team Unbalanced", 
     "Team Mefihech Borri", "Team Nchalah Moch M3a Borri", "Team No Push", 
     "Team Top Mid", "Team Je Smoke Pas", "Team Push mid", "Ah!", "Team Dont Shoot", 
-    "Friendly", "Headshot Fel Ras", "Amen Yezzi", "Massadni", "Nikni But Dont Zeus Me", "El Bidha Mon Amour (Couca)"
+    "Friendly", "Headshot Fel Ras", "Amen Yezzi", "Massadni", "Nikni But Dont Zeus Me", "El Bidha Mon Amour (Couca)", "Team Tmarti9", "Ya Didi Meghir Push", "Kimkim", "FREE PALESTINE"
 ]
 
 MAP_POOL = ["Dust2", "Mirage", "Nuke", "Anubis", "Overpass", "Ancient", "Inferno"]
