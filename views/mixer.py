@@ -6,7 +6,7 @@ import uuid
 import sqlite3
 import os
 import base64
-from constants import TEAM_NAMES, MAP_POOL, MAP_LOGOS
+from constants import TEAM_NAMES, MAP_POOL, MAP_LOGOS, SKEEZ_TITLES
 from database import (save_draft_state, load_draft_state, clear_draft_state, 
                       update_draft_map, update_elo, get_vote_status, set_draft_pins,
                       init_veto_state, get_veto_state)
@@ -308,6 +308,7 @@ def render_mixer_tab(player_df):
                 with rc2:
                     if st.button("🎲 Reroll (Chaos)", use_container_width=True): st.session_state.trigger_reroll = True; st.rerun()
                     if st.button("🔄 Full Reset", type="primary", use_container_width=True):
+                        if 'skeez_nickname' in st.session_state: del st.session_state.skeez_nickname
                         clear_draft_state(); clear_lobby_link(); st.session_state.clear(); st.session_state.maps_sent_to_discord = False; st.rerun()
 
 
@@ -403,8 +404,16 @@ def render_mixer_tab(player_df):
             cap2_name = current_votes.iloc[1]['captain_name']
 
         def format_player(name):
-            if name == cap1_name or name == cap2_name: return f"👑 {name}"
-            return name
+            # Skeez Nickname Logic
+            if name == "Skeez":
+                if "skeez_nickname" not in st.session_state:
+                    st.session_state.skeez_nickname = random.choice(SKEEZ_TITLES)
+                display_name = f"{st.session_state.skeez_nickname} (Skeez)"
+            else:
+                display_name = name
+
+            if name == cap1_name or name == cap2_name: return f"👑 {display_name}"
+            return display_name
 
         if not st.session_state.revealed:
             if 'draft_pins' not in st.session_state:

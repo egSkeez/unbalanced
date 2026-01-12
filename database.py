@@ -46,10 +46,11 @@ def init_db():
         pass
 
     c.execute("SELECT COUNT(*) FROM players")
-    if c.fetchone()[0] == 0:
-        for name, d in PLAYERS_INIT.items():
-            c.execute("INSERT INTO players VALUES (?, ?, ?, ?, ?, ?)", 
-                      (name, d['elo'], d['aim'], d['util'], d['team'], "cs2pro"))
+    
+    # UPSERT Logic: Add new players if they don't exist
+    for name, d in PLAYERS_INIT.items():
+        c.execute("INSERT OR IGNORE INTO players (name, elo, aim, util, team_play, secret_word) VALUES (?, ?, ?, ?, ?, ?)", 
+                  (name, d['elo'], d['aim'], d['util'], d['team'], "cs2pro"))
     
     c.execute("UPDATE players SET secret_word = lower(name) WHERE secret_word IS NULL OR secret_word = ''")
     conn.commit()
