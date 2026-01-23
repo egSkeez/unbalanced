@@ -16,10 +16,11 @@ PLAYERS_INIT = {
     "Chajra": {"aim": 5, "util": 3, "team": 4, "elo": 1200},
     "Skan": {"aim": 2, "util": 2, "team": 2, "elo": 900},
     "Zak": {"aim": 6.5, "util": 6, "team": 6, "elo": 1450},
-    "Sekinho": {"aim": 7.5, "util": 7, "team": 7.5, "elo": 1650}
+    "Sekinho": {"aim": 7.5, "util": 7, "team": 7.5, "elo": 1650},
+    "3omda": {"aim": 8.2, "util": 8.2, "team": 8.2, "elo": 1650}
 }
 
-SKEEZ_TITLES = ["Donald el Sissi", "Stella Montis", "Skeez", "45-2", "The Prophet", "Moulay El Malik", "Daddy", "El Ostoura", "Number One", "Unfair", "Ycheati", "The Champ", "Kais Saayed", "El Capo", "El Don", "The problem", "Baba", "Rajel Omek", ""]
+SKEEZ_TITLES = ["Donald el Sissi", "Stella Montis", "Skeez", "45-2", "Senegal", "Moulay El Malik", "Daddy", "El Ostoura", "Number One", "Unfair", "Ycheati", "The Champ", "Kais Saayed", "El Capo", "El Don", "The problem", "Baba", "Rajel Omek", ""]
 
 TEAM_NAMES = [
     "Team 9tates", "Team Dwe El Far", "Kimkim", "Team El Wawa", "Teamspeak", 
