@@ -29,7 +29,7 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS active_draft_state 
                  (id INTEGER PRIMARY KEY, t1_json TEXT, t2_json TEXT, 
                   name_a TEXT, name_b TEXT, avg1 REAL, avg2 REAL, 
-                  current_map TEXT, current_lobby TEXT)''')
+                  current_map TEXT, current_lobby TEXT, cybershoke_match_id TEXT)''')
     
     c.execute('''CREATE TABLE IF NOT EXISTS active_veto_state 
                  (id INTEGER PRIMARY KEY, remaining_maps TEXT, protected_maps TEXT, current_turn TEXT)''')
@@ -42,6 +42,11 @@ def init_db():
 
     try:
         c.execute("ALTER TABLE active_draft_state ADD COLUMN current_lobby TEXT")
+    except:
+        pass
+
+    try:
+        c.execute("ALTER TABLE active_draft_state ADD COLUMN cybershoke_match_id TEXT")
     except:
         pass
 
@@ -61,9 +66,9 @@ def save_draft_state(t1, t2, name_a, name_b, avg1, avg2):
     conn = sqlite3.connect('cs2_history.db')
     c = conn.cursor()
     c.execute("DELETE FROM active_draft_state") 
-    # Initialize with NULL current_lobby
-    c.execute("INSERT INTO active_draft_state (id, t1_json, t2_json, name_a, name_b, avg1, avg2, current_map, current_lobby) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)",
-              (json.dumps(t1), json.dumps(t2), name_a, name_b, avg1, avg2, None, None))
+    # Initialize with NULL current_lobby and cybershoke_match_id
+    c.execute("INSERT INTO active_draft_state (id, t1_json, t2_json, name_a, name_b, avg1, avg2, current_map, current_lobby, cybershoke_match_id) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              (json.dumps(t1), json.dumps(t2), name_a, name_b, avg1, avg2, None, None, None))
     conn.commit()
     conn.close()
 
@@ -77,14 +82,15 @@ def update_draft_map(map_data):
 def load_draft_state():
     conn = sqlite3.connect('cs2_history.db')
     c = conn.cursor()
-    c.execute("SELECT t1_json, t2_json, name_a, name_b, avg1, avg2, current_map, current_lobby FROM active_draft_state WHERE id=1")
+    c.execute("SELECT t1_json, t2_json, name_a, name_b, avg1, avg2, current_map, current_lobby, cybershoke_match_id FROM active_draft_state WHERE id=1")
     row = c.fetchone()
     conn.close()
     if row:
-        # Returns tuple including current_lobby at index 7
+        # Returns tuple including current_lobby at index 7 and match_id at index 8
         # Handle cases where row might be shorter if schema wasn't fully updated (fallback)
         lobby = row[7] if len(row) > 7 else None
-        return (json.loads(row[0]), json.loads(row[1]), row[2], row[3], row[4], row[5], row[6], lobby)
+        cs_id = row[8] if len(row) > 8 else None
+        return (json.loads(row[0]), json.loads(row[1]), row[2], row[3], row[4], row[5], row[6], lobby, cs_id)
     return None
 
 def clear_draft_state():
@@ -129,7 +135,26 @@ def update_veto_turn(remaining, protected, next_turn):
 # --- PLAYER & STATS FUNCTIONS ---
 def get_player_stats():
     conn = sqlite3.connect('cs2_history.db')
-    df = pd.read_sql_query("SELECT *, (aim+util+team_play)/3 as overall FROM players ORDER BY elo DESC", conn)
+    
+    # Get base player data
+    df = pd.read_sql_query("SELECT name, aim, util, team_play, secret_word FROM players", conn)
+    
+    # Calculate average K/D from match statistics
+    kd_query = '''
+        SELECT 
+            player_name,
+            ROUND(SUM(kills) * 1.0 / NULLIF(SUM(deaths), 0), 2) as avg_kd
+        FROM player_match_stats
+        GROUP BY player_name
+    '''
+    kd_df = pd.read_sql_query(kd_query, conn)
+    
+    # Merge K/D data with player data
+    df = df.merge(kd_df, left_on='name', right_on='player_name', how='left')
+    df['avg_kd'] = df['avg_kd'].fillna(1.0)  # Default to 1.0 if no matches
+    df = df.drop('player_name', axis=1, errors='ignore')
+    
+    # Get W/D from matches
     try:
         matches = pd.read_sql_query("SELECT team1_players, team2_players, winner_idx FROM matches", conn)
     except:
@@ -147,8 +172,18 @@ def get_player_stats():
             else:
                 df.loc[df['name'].isin(t2), 'W'] += 1
                 df.loc[df['name'].isin(t1), 'D'] += 1
+    
+    # Calculate Winrate
+    df['Matches'] = df['W'] + df['D']
+    df['Winrate'] = 0.0
+    valid_mask = df['Matches'] > 0
+    df.loc[valid_mask, 'Winrate'] = (df.loc[valid_mask, 'W'] / df.loc[valid_mask, 'Matches'] * 100).round(1)
+
+    # Calculate overall rating
+    df['overall'] = (df['aim'] + df['util'] + df['team_play']) / 3
+    
     conn.close()
-    return df.sort_values(by="overall", ascending=False)
+    return df.sort_values(by="avg_kd", ascending=False)
 
 def get_player_secret(name):
     conn = sqlite3.connect('cs2_history.db')

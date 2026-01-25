@@ -51,27 +51,30 @@ def create_cybershoke_lobby_api(admin_name="Skeez"):
             data = response.json()
             if data.get("result") == "success":
                 lobby_id = data["data"]["id_lobby"]
-                return f"https://cybershoke.net/match/{lobby_id}"
+                return f"https://cybershoke.net/match/{lobby_id}", lobby_id
             else:
                 print(f"API returned error for {admin_name}:", data.get("message"))
-                return None
+                return None, None
         else:
             print(f"API Failed with status {response.status_code}")
-            return None
+            return None, None
     except Exception as e:
         print(f"Request failed: {e}")
-        return None
+        return None, None
 
 def init_cybershoke_db():
     """Placeholder function to satisfy app.py imports."""
     pass
 
 # --- DB PERSISTENCE FUNCTIONS ---
-def set_lobby_link(link):
-    """Saves the lobby link to the database."""
+def set_lobby_link(link, match_id=None):
+    """Saves the lobby link and optional match ID to the database."""
     conn = sqlite3.connect('cs2_history.db')
     try:
-        conn.execute("UPDATE active_draft_state SET current_lobby=? WHERE id=1", (link,))
+        if match_id:
+            conn.execute("UPDATE active_draft_state SET current_lobby=?, cybershoke_match_id=? WHERE id=1", (link, str(match_id)))
+        else:
+            conn.execute("UPDATE active_draft_state SET current_lobby=? WHERE id=1", (link,))
         conn.commit()
     except Exception as e:
         print(f"Error saving lobby link: {e}")
@@ -79,26 +82,28 @@ def set_lobby_link(link):
         conn.close()
 
 def get_lobby_link():
-    """Retrieves the active lobby link from the database."""
+    """Retrieves the active lobby link and match ID from the database."""
     conn = sqlite3.connect('cs2_history.db')
     c = conn.cursor()
     link = None
+    cs_id = None
     try:
-        c.execute("SELECT current_lobby FROM active_draft_state WHERE id=1")
+        c.execute("SELECT current_lobby, cybershoke_match_id FROM active_draft_state WHERE id=1")
         row = c.fetchone()
-        if row and row[0]:
+        if row:
             link = row[0]
+            cs_id = row[1]
     except:
         pass
     finally:
         conn.close()
-    return link
+    return link, cs_id
 
 def clear_lobby_link():
-    """Removes the lobby link from the database."""
+    """Removes the lobby link and match ID from the database."""
     conn = sqlite3.connect('cs2_history.db')
     try:
-        conn.execute("UPDATE active_draft_state SET current_lobby=NULL WHERE id=1")
+        conn.execute("UPDATE active_draft_state SET current_lobby=NULL, cybershoke_match_id=NULL WHERE id=1")
         conn.commit()
     except:
         pass

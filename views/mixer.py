@@ -312,7 +312,7 @@ def render_mixer_tab(player_df):
                         clear_draft_state(); clear_lobby_link(); st.session_state.clear(); st.session_state.maps_sent_to_discord = False; st.rerun()
 
 
-        active_lobby = get_lobby_link()
+        active_lobby, cybershoke_mid = get_lobby_link()
         is_creating = st.session_state.get("lobby_creating", False)
 
         if st.session_state.global_map_pick and not active_lobby and not is_creating:
@@ -320,9 +320,9 @@ def render_mixer_tab(player_df):
              with st.spinner("🤖 Automatically creating Cybershoke lobby..."):
                  try:
                      current_admin = st.session_state.get("admin_user", "Skeez")
-                     auto_link = create_cybershoke_lobby_api(admin_name=current_admin)
+                     auto_link, res_mid = create_cybershoke_lobby_api(admin_name=current_admin)
                      if auto_link:
-                         set_lobby_link(auto_link)
+                         set_lobby_link(auto_link, res_mid)
                          # REMOVED AUTO SEND HERE
                  finally:
                      st.session_state.lobby_creating = False # Unlock

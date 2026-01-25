@@ -36,6 +36,27 @@ def render_mobile_vote_page(token):
     cap_name, current_vote = row
     st.markdown(f"<h3 style='text-align:center;'>👑 {cap_name}</h3>", unsafe_allow_html=True)
 
+    # --- SHOW TEAM MEMBERS FOR THIS CAPTAIN ---
+    saved = load_draft_state()
+    if saved:
+        t1_json, t2_json, n_a, n_b, _, _, _, _, _ = saved
+        
+        st.markdown("### ⚔️ Matchup")
+        
+        # Display both teams side-by-side
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown(f"**🔵 {n_a}**")
+            for p in t1_json:
+                st.markdown(f"{p}")
+                
+        with c2:
+            st.markdown(f"**🔴 {n_b}**")
+            for p in t2_json:
+                st.markdown(f"{p}")
+        
+        st.divider()
+        
     if current_vote == "Waiting":
         st.info("Draft Pending Approval")
         col1, col2 = st.columns(2)
@@ -72,7 +93,7 @@ def render_mobile_vote_page(token):
 
     saved = load_draft_state()
     if not saved: return
-    t1_json, t2_json, n_a, n_b, _, _, _, _ = saved
+    t1_json, t2_json, n_a, n_b, _, _, _, _, _ = saved
     
     my_team_name = n_a if cap_name in t1_json else n_b
     opp_team_name = n_b if my_team_name == n_a else n_a

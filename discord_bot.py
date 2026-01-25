@@ -56,7 +56,7 @@ def send_full_match_info(name_a, t1_players, name_b, t2_players, maps, lobby_lin
     server_text = "⚠️ **Server link not generated yet.**"
     if lobby_link:
         server_text = (
-            f"🔗 **[CLICK HERE TO JOIN SERVER]({lobby_link})**\n"
+            f"🔗 **[3me fi 3inik]({lobby_link})**\n"
             f"⌨️ `connect {lobby_link.split('/')[-1]}`\n"
             f"🔑 Password: `kimkim`"
         )
@@ -87,6 +87,42 @@ def send_full_match_info(name_a, t1_players, name_b, t2_players, maps, lobby_lin
         print(f"Discord Error: {e}")
 
 # Keep legacy stubs to prevent crashes
+# Keep legacy stubs to prevent crashes
 def send_teams_to_discord(na, t1, nb, t2): pass
-def send_lobby_to_discord(link, map_name): pass
+
+def send_lobby_to_discord(link, map_name=None):
+    if not DISCORD_WEBHOOK_URL: return
+    
+    server_text = (
+        f"🔗 **[3me fi 3inik]({link})**\n"
+        f"⌨️ `connect {link.split('/')[-1]}`\n"
+        f"🔑 Password: `kimkim`"
+    )
+
+    embed = {
+        "title": "🚀 SERVER RE-BROADCAST",
+        "description": f"The lobby link has been updated/resent.",
+        "color": 3066993, # Green
+        "fields": [
+            {
+                "name": "Server Info",
+                "value": server_text,
+                "inline": False
+            }
+        ]
+    }
+
+    if map_name:
+         embed["fields"].append({
+             "name": "Current Map",
+             "value": f"**{map_name}**",
+             "inline": True
+         })
+
+    payload = {"embeds": [embed]}
+    try:
+        requests.post(DISCORD_WEBHOOK_URL, json=payload)
+    except Exception as e:
+        print(f"Discord Error: {e}")
+
 def send_maps_to_discord(maps): pass

@@ -11,6 +11,8 @@ from views.mixer import render_mixer_tab
 from views.bench import render_bench_tab
 from views.history import render_history_tab
 from views.admin import render_admin_tab
+from views.stats import render_stats_tab
+from views.trophies import render_trophies_tab
 
 # --- MAIN ENTRY POINT ---
 ROOMMATES = ["Chajra", "Ghoufa"]
@@ -21,6 +23,15 @@ if "vote_token" in st.query_params:
 
 init_db()
 init_cybershoke_db()
+
+# Initialize match statistics tables
+from match_stats_db import init_match_stats_tables
+init_match_stats_tables()
+
+# Initialize match registry
+from match_registry import init_match_registry
+init_match_registry()
+
 st.set_page_config(page_title="CS2 Pro Balancer", layout="centered")
 render_custom_css()
 
@@ -64,7 +75,7 @@ if st.session_state.get("trigger_reroll", False):
 if 'teams_locked' not in st.session_state or not st.session_state.teams_locked:
     saved_draft = load_draft_state()
     if saved_draft:
-        t1, t2, n_a, n_b, a1, a2, db_map, _ = saved_draft
+        t1, t2, n_a, n_b, a1, a2, db_map, _, _ = saved_draft
         st.session_state.final_teams = (t1, t2, a1, a2, 0)
         st.session_state.assigned_names = (n_a, n_b)
         st.session_state.teams_locked = True
@@ -78,7 +89,7 @@ if st.session_state.get("veto_complete_trigger", False):
     st.rerun()
 
 # --- TABS ---
-tabs = st.tabs(["🎮 Mixer & Veto", "🎡 Bench Wheel", "📜 History", "⚙️ Admin"])
+tabs = st.tabs(["🎮 Mixer & Veto", "🎡 Bench Wheel", "📜 History", "📊 Stats", "🏆 Trophies", "⚙️ Admin"])
 
 with tabs[0]:
     render_mixer_tab(player_df)
@@ -90,4 +101,10 @@ with tabs[2]:
     render_history_tab()
 
 with tabs[3]:
+    render_stats_tab()
+
+with tabs[4]:
+    render_trophies_tab()
+
+with tabs[5]:
     render_admin_tab()
