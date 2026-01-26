@@ -17,7 +17,7 @@ PLAYERS_INIT = {
     "Skan": {"aim": 2, "util": 2, "team": 2, "elo": 900},
     "zak": {"aim": 6.5, "util": 6, "team": 6, "elo": 1450},
     "Sekinho": {"aim": 7.5, "util": 7, "team": 7.5, "elo": 1650},
-    "hiyox": {"aim": 8.2, "util": 8.2, "team": 8.2, "elo": 1650}
+    "Hiyox": {"aim": 8.2, "util": 8.2, "team": 8.2, "elo": 1650}
 }
 
 SKEEZ_TITLES = ["Donald el Sissi", "Stella Montis", "Skeez", "45-2", "Senegal", "Moulay El Malik", "Daddy", "El Ostoura", "Number One", "Unfair", "Ycheati", "The Champ", "Kais Saayed", "El Capo", "El Don", "The problem", "Baba", "Rajel Omek", ""]
