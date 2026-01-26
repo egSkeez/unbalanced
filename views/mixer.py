@@ -119,6 +119,7 @@ def render_veto_fragment(name_a, name_b, cap1_name, cap2_name):
         
         with st.spinner("🪙 Flipping coin..."):
             time.sleep(3.5) # Wait for animation
+            print(f"DEBUG: Initializing veto state. Winner: {winner}")
             init_veto_state(MAP_POOL.copy(), winner)
             disp = cap1_name if winner == name_a else cap2_name
             st.toast(f"🪙 Coin Flip Winner: {disp}")

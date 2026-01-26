@@ -70,17 +70,20 @@ def render_mobile_vote_page(token):
             st.rerun()
         return
 
-    if current_vote == "Approve":
-        st.success("✅ You have approved the draft.")
-        st.info("⏳ Waiting for the other captain to confirm...")
-        st.caption("Auto-refreshing...")
-        time.sleep(2)
-        st.rerun()
-        return
-
     rem, prot, turn_team = get_veto_state()
     
-    if not rem: 
+    # If the veto phase hasn't started yet...
+    if rem is None:
+        if current_vote == "Approve":
+            st.success("✅ You have approved the draft.")
+            st.info("⏳ Waiting for the other captain / coin flip...")
+            st.caption("Auto-refreshing...")
+            time.sleep(2)
+            st.rerun()
+            return
+    
+    # If veto logic is complete (rem is empty list but not None)
+    if rem is not None and not rem: 
         saved = load_draft_state()
         if saved:
              final_maps_str = saved[6]
