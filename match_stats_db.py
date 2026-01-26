@@ -71,6 +71,14 @@ def init_match_stats_tables():
         except:
             pass
     
+    # Table for tracking Cybershoke lobbies
+    c.execute('''CREATE TABLE IF NOT EXISTS cybershoke_lobbies
+                 (lobby_id TEXT PRIMARY KEY,
+                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                  has_demo INTEGER DEFAULT 0,  -- 0: Unknown, 1: Yes, -1: No
+                  analysis_status TEXT DEFAULT 'pending', -- pending, analyzed, error, no_demo
+                  notes TEXT)''')
+
     conn.commit()
     conn.close()
 
@@ -278,3 +286,47 @@ def get_season_stats_dump(start_date, end_date):
         
     conn.close()
     return df
+
+def add_lobby(lobby_id):
+    """
+    Adds a new Cybershoke lobby to the tracking table.
+    """
+    conn = sqlite3.connect('cs2_history.db')
+    c = conn.cursor()
+    try:
+        # Use INSERT OR IGNORE to handle potential duplicates gracefully
+        c.execute("INSERT OR IGNORE INTO cybershoke_lobbies (lobby_id) VALUES (?)", (str(lobby_id),))
+        conn.commit()
+    except Exception as e:
+        print(f"Error adding lobby: {e}")
+    finally:
+        conn.close()
+
+def get_all_lobbies():
+    """
+    Returns all tracked lobbies ordered by creation date (newest first).
+    """
+    conn = sqlite3.connect('cs2_history.db')
+    query = "SELECT * FROM cybershoke_lobbies ORDER BY created_at DESC"
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+    return df
+
+def update_lobby_status(lobby_id, has_demo=None, status=None):
+    """
+    Updates the status or demo availability of a lobby.
+    """
+    conn = sqlite3.connect('cs2_history.db')
+    c = conn.cursor()
+    try:
+        if has_demo is not None:
+             c.execute("UPDATE cybershoke_lobbies SET has_demo = ? WHERE lobby_id = ?", (int(has_demo), str(lobby_id)))
+        
+        if status is not None:
+            c.execute("UPDATE cybershoke_lobbies SET analysis_status = ? WHERE lobby_id = ?", (status, str(lobby_id)))
+            
+        conn.commit()
+    except Exception as e:
+        print(f"Error updating lobby: {e}")
+    finally:
+        conn.close()

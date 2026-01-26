@@ -15,7 +15,7 @@ from views.stats import render_stats_tab
 from views.trophies import render_trophies_tab
 
 # --- MAIN ENTRY POINT ---
-ROOMMATES = ["Chajra", "Ghoufa"]
+ROOMMATES = ["jardin public", "magon"]
 
 if "vote_token" in st.query_params:
     render_mobile_vote_page(st.query_params["vote_token"])
@@ -62,10 +62,11 @@ if st.session_state.get("trigger_reroll", False):
     if "draft_pins" in st.session_state and st.session_state.draft_pins:
         force_captains = list(st.session_state.draft_pins.keys())
 
-    all_combos = get_best_combinations(current_players, force_split=force_captains, force_together=ROOMMATES)
+    metric = "avg_kd" if st.session_state.get("draft_mode") == "kd_balanced" else "overall"
+    all_combos = get_best_combinations(current_players, force_split=force_captains, force_together=ROOMMATES, metric=metric)
     ridx = random.randint(1, min(50, len(all_combos) - 1))
     nt1, nt2, na1, na2, ngap = all_combos[ridx]
-    save_draft_state(nt1, nt2, st.session_state.assigned_names[0], st.session_state.assigned_names[1], na1, na2)
+    save_draft_state(nt1, nt2, st.session_state.assigned_names[0], st.session_state.assigned_names[1], na1, na2, mode=st.session_state.get("draft_mode", "balanced"))
     st.session_state.final_teams = all_combos[ridx]
     st.session_state.revealed = False
     st.session_state.maps_sent_to_discord = False
@@ -75,12 +76,13 @@ if st.session_state.get("trigger_reroll", False):
 if 'teams_locked' not in st.session_state or not st.session_state.teams_locked:
     saved_draft = load_draft_state()
     if saved_draft:
-        t1, t2, n_a, n_b, a1, a2, db_map, _, _ = saved_draft
+        t1, t2, n_a, n_b, a1, a2, db_map, _, _, mode = saved_draft
         st.session_state.final_teams = (t1, t2, a1, a2, 0)
         st.session_state.assigned_names = (n_a, n_b)
         st.session_state.teams_locked = True
         st.session_state.revealed = True
         if db_map: st.session_state.global_map_pick = db_map
+        st.session_state.draft_mode = mode
 
 if st.session_state.get("veto_complete_trigger", False):
     st.session_state.veto_complete_trigger = False

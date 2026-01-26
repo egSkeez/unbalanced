@@ -29,7 +29,7 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS active_draft_state 
                  (id INTEGER PRIMARY KEY, t1_json TEXT, t2_json TEXT, 
                   name_a TEXT, name_b TEXT, avg1 REAL, avg2 REAL, 
-                  current_map TEXT, current_lobby TEXT, cybershoke_match_id TEXT)''')
+                  current_map TEXT, current_lobby TEXT, cybershoke_match_id TEXT, draft_mode TEXT)''')
     
     c.execute('''CREATE TABLE IF NOT EXISTS active_veto_state 
                  (id INTEGER PRIMARY KEY, remaining_maps TEXT, protected_maps TEXT, current_turn TEXT)''')
@@ -50,6 +50,11 @@ def init_db():
     except:
         pass
 
+    try:
+        c.execute("ALTER TABLE active_draft_state ADD COLUMN draft_mode TEXT")
+    except:
+        pass
+
     c.execute("SELECT COUNT(*) FROM players")
     
     # UPSERT Logic: Add new players if they don't exist
@@ -62,13 +67,13 @@ def init_db():
     conn.close()
 
 # --- DRAFT STATE FUNCTIONS ---
-def save_draft_state(t1, t2, name_a, name_b, avg1, avg2):
+def save_draft_state(t1, t2, name_a, name_b, avg1, avg2, mode="balanced"):
     conn = sqlite3.connect('cs2_history.db')
     c = conn.cursor()
     c.execute("DELETE FROM active_draft_state") 
     # Initialize with NULL current_lobby and cybershoke_match_id
-    c.execute("INSERT INTO active_draft_state (id, t1_json, t2_json, name_a, name_b, avg1, avg2, current_map, current_lobby, cybershoke_match_id) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-              (json.dumps(t1), json.dumps(t2), name_a, name_b, avg1, avg2, None, None, None))
+    c.execute("INSERT INTO active_draft_state (id, t1_json, t2_json, name_a, name_b, avg1, avg2, current_map, current_lobby, cybershoke_match_id, draft_mode) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              (json.dumps(t1), json.dumps(t2), name_a, name_b, avg1, avg2, None, None, None, mode))
     conn.commit()
     conn.close()
 
@@ -82,15 +87,16 @@ def update_draft_map(map_data):
 def load_draft_state():
     conn = sqlite3.connect('cs2_history.db')
     c = conn.cursor()
-    c.execute("SELECT t1_json, t2_json, name_a, name_b, avg1, avg2, current_map, current_lobby, cybershoke_match_id FROM active_draft_state WHERE id=1")
+    c.execute("SELECT t1_json, t2_json, name_a, name_b, avg1, avg2, current_map, current_lobby, cybershoke_match_id, draft_mode FROM active_draft_state WHERE id=1")
     row = c.fetchone()
     conn.close()
     if row:
-        # Returns tuple including current_lobby at index 7 and match_id at index 8
+        # Returns tuple including current_lobby at index 7 and match_id at index 8 and mode at 9
         # Handle cases where row might be shorter if schema wasn't fully updated (fallback)
         lobby = row[7] if len(row) > 7 else None
         cs_id = row[8] if len(row) > 8 else None
-        return (json.loads(row[0]), json.loads(row[1]), row[2], row[3], row[4], row[5], row[6], lobby, cs_id)
+        mode = row[9] if len(row) > 9 else "balanced"
+        return (json.loads(row[0]), json.loads(row[1]), row[2], row[3], row[4], row[5], row[6], lobby, cs_id, mode)
     return None
 
 def clear_draft_state():
@@ -206,6 +212,7 @@ def submit_vote(secret_attempt, vote_choice):
     conn = sqlite3.connect('cs2_history.db')
     c = conn.cursor()
     c.execute("UPDATE current_draft_votes SET vote = ? WHERE pin = ?", (vote_choice, secret_attempt))
+    print(f"DEBUG: Updating vote for pin {secret_attempt} to {vote_choice}. Rows affected: {c.rowcount}")
     updated = c.rowcount > 0
     conn.commit()
     conn.close()

@@ -2,22 +2,22 @@
 PLAYERS_INIT = {
     "Skeez": {"aim": 9, "util": 8, "team": 9, "elo": 1800},
     "Kim": {"aim": 6.5, "util": 8, "team": 8, "elo": 1500},
-    "Ghoufa": {"aim": 7, "util": 6, "team": 8, "elo": 1450},
-    "Borri": {"aim": 10, "util": 6, "team": 4, "elo": 1600},
-    "Gasta": {"aim": 6, "util": 5, "team": 5, "elo": 1300},
-    "Didi": {"aim": 5, "util": 3, "team": 4, "elo": 1200},
-    "Zebda": {"aim": 3, "util": 2, "team": 3, "elo": 1100},
-    "Kfox": {"aim": 2.5, "util": 1, "team": 5, "elo": 1050},
-    "Chab": {"aim": 8, "util": 6, "team": 5, "elo": 1400},
+    "magon": {"aim": 7, "util": 6, "team": 8, "elo": 1450},
+    "zugzwxng": {"aim": 10, "util": 6, "team": 4, "elo": 1600},
+    "Gastafix": {"aim": 6, "util": 5, "team": 5, "elo": 1300},
+    "walker-bassit": {"aim": 5, "util": 3, "team": 4, "elo": 1200},
+    "Ta9ess": {"aim": 3, "util": 2, "team": 3, "elo": 1100},
+    "ABU_GHALI": {"aim": 2.5, "util": 1, "team": 5, "elo": 1050},
+    "Tbastina": {"aim": 8, "util": 6, "team": 5, "elo": 1400},
     "Amen": {"aim": 8.5, "util": 6, "team": 7, "elo": 1550},
     "Jridi": {"aim": 2.5, "util": 2, "team": 3, "elo": 1000},
     "Bobista": {"aim": 5, "util": 5, "team": 4, "elo": 1250},
-    "Zbat": {"aim": 7.5, "util": 4, "team": 5, "elo": 1350},
-    "Chajra": {"aim": 5, "util": 3, "team": 4, "elo": 1200},
+    "zbat": {"aim": 7.5, "util": 4, "team": 5, "elo": 1350},
+    "jardin public": {"aim": 5, "util": 3, "team": 4, "elo": 1200},
     "Skan": {"aim": 2, "util": 2, "team": 2, "elo": 900},
-    "Zak": {"aim": 6.5, "util": 6, "team": 6, "elo": 1450},
+    "zak": {"aim": 6.5, "util": 6, "team": 6, "elo": 1450},
     "Sekinho": {"aim": 7.5, "util": 7, "team": 7.5, "elo": 1650},
-    "3omda": {"aim": 8.2, "util": 8.2, "team": 8.2, "elo": 1650}
+    "hiyox": {"aim": 8.2, "util": 8.2, "team": 8.2, "elo": 1650}
 }
 
 SKEEZ_TITLES = ["Donald el Sissi", "Stella Montis", "Skeez", "45-2", "Senegal", "Moulay El Malik", "Daddy", "El Ostoura", "Number One", "Unfair", "Ycheati", "The Champ", "Kais Saayed", "El Capo", "El Don", "The problem", "Baba", "Rajel Omek", ""]

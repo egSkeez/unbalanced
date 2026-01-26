@@ -15,7 +15,7 @@ from cybershoke import create_cybershoke_lobby_api, set_lobby_link, get_lobby_li
 from discord_bot import send_full_match_info # <--- Manual Broadcast Function
 from utils import generate_qr, get_local_ip
 
-ROOMMATES = ["Chajra", "Ghoufa"]
+ROOMMATES = ["jardin public", "magon"]
 QR_BASE_URL = "https://unbalanced-wac3gydqklzbeeuomp6adp.streamlit.app/"
 SOUNDS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "sounds")
 
@@ -171,7 +171,7 @@ def render_veto_fragment(name_a, name_b, cap1_name, cap2_name):
                     <div style="font-size: 0.8em; font-weight: bold; margin-top: 5px; color: #aaa;">{m}</div>
                 </div>""", unsafe_allow_html=True)
 
-@st.fragment(run_every=2)
+@st.fragment(run_every=1)
 def render_voting_fragment(t1, t2, name_a, name_b):
     st.subheader("📲 Captains: Scan to Vote")
     
@@ -256,17 +256,24 @@ def render_mixer_tab(player_df):
             st.write(f"**Players Selected:** `{len(current_sel)}/10`")
             selected = st.multiselect("Select 10 Players:", options=player_df['name'].tolist(), key="current_selection", label_visibility="collapsed")
             if len(selected) == 10:
-                score_map = dict(zip(player_df['name'], player_df['overall']))
-                sorted_sel = sorted(selected, key=lambda x: score_map.get(x, 0), reverse=True)
-                top_2 = [sorted_sel[0], sorted_sel[1]]
-                col1, col2 = st.columns(2)
+                col1, col2, col3 = st.columns(3)
                 
                 def run_draft(mode="balanced"):
-                    all_combos = get_best_combinations(selected, force_split=top_2, force_together=ROOMMATES)
-                    ridx = 0 if mode == "balanced" else random.randint(1, min(50, len(all_combos) - 1))
+                    metric = "avg_kd" if mode == "kd_balanced" else "overall"
+                    
+                    # Dynamically determine Top 2 based on the chosen metric to force split them
+                    current_score_map = dict(zip(player_df['name'], player_df[metric]))
+                    sorted_by_metric = sorted(selected, key=lambda x: current_score_map.get(x, 0), reverse=True)
+                    dynamic_top_2 = [sorted_by_metric[0], sorted_by_metric[1]]
+
+                    all_combos = get_best_combinations(selected, force_split=dynamic_top_2, force_together=ROOMMATES, metric=metric)
+                    ridx = 0 if mode in ["balanced", "kd_balanced"] else random.randint(1, min(50, len(all_combos) - 1))
                     t1, t2, a1, a2, gap = all_combos[ridx]
                     n_a, n_b = random.sample(TEAM_NAMES, 2)
-                    save_draft_state(t1, t2, n_a, n_b, a1, a2)
+                    save_draft_state(t1, t2, n_a, n_b, a1, a2, mode=mode)
+                    
+                    # Update session state with mode
+                    st.session_state.draft_mode = mode
                     
                     # RESTORE MAP IF PRESERVED
                     if st.session_state.get("preserved_map_pick"):
@@ -284,7 +291,8 @@ def render_mixer_tab(player_df):
                     st.rerun()
 
                 if col1.button("⚖️ Perfect Balance", use_container_width=True): run_draft("balanced")
-                if col2.button("🎲 Chaos Mode", use_container_width=True): run_draft("chaos")
+                if col2.button("🔫 KD Balance", use_container_width=True): run_draft("kd_balanced")
+                if col3.button("🎲 Chaos Mode", use_container_width=True): run_draft("chaos")
         else:
             render_waiting_screen()
     else:
@@ -296,17 +304,33 @@ def render_mixer_tab(player_df):
         
         if st.session_state.admin_authenticated:
             with st.expander("🛠️ Draft Options"):
-                rc1, rc2 = st.columns(2)
+                rc1, rc2, rc3 = st.columns(3)
                 with rc1:
-                    if st.button("⚖️ Reroll (Balanced)", use_container_width=True): st.session_state.trigger_reroll = True; st.rerun()
-                    if st.button("🏃 Substitute Players", help="Unlock draft to swap players but KEEP the current map/veto.", use_container_width=True):
+                    if st.button("⚖️ Reroll (Balanced)", use_container_width=True): 
+                        st.session_state.draft_mode = "balanced"
+                        st.session_state.trigger_reroll = True
+                        st.rerun()
+                with rc2:
+                    if st.button("🔫 Reroll (KD)", use_container_width=True): 
+                        st.session_state.draft_mode = "kd_balanced"
+                        st.session_state.trigger_reroll = True
+                        st.rerun()
+                with rc3:
+                    if st.button("🎲 Reroll (Chaos)", use_container_width=True): 
+                        st.session_state.draft_mode = "balanced" # Chaos uses balanced metric but random pick
+                        st.session_state.trigger_reroll = True
+                        st.rerun()
+                
+                # Secondary row for utility
+                rc_sub, rc_reset = st.columns(2)
+                with rc_sub:
+                     if st.button("🏃 Substitute Players", help="Unlock draft to swap players but KEEP the current map/veto.", use_container_width=True):
                          st.session_state.preserved_map_pick = st.session_state.get("global_map_pick")
                          clear_draft_state() # Clear DB so app.py doesn't auto-load old teams
                          st.session_state.teams_locked = False
                          st.session_state.revealed = False
                          st.rerun()
-                with rc2:
-                    if st.button("🎲 Reroll (Chaos)", use_container_width=True): st.session_state.trigger_reroll = True; st.rerun()
+                with rc_reset:
                     if st.button("🔄 Full Reset", type="primary", use_container_width=True):
                         if 'skeez_nickname' in st.session_state: del st.session_state.skeez_nickname
                         clear_draft_state(); clear_lobby_link(); st.session_state.clear(); st.session_state.maps_sent_to_discord = False; st.rerun()
@@ -405,12 +429,20 @@ def render_mixer_tab(player_df):
 
         def format_player(name):
             # Skeez Nickname Logic
+            display_name = name
             if name == "Skeez":
                 if "skeez_nickname" not in st.session_state:
                     st.session_state.skeez_nickname = random.choice(SKEEZ_TITLES)
                 display_name = f"{st.session_state.skeez_nickname} (Skeez)"
-            else:
-                display_name = name
+            
+            # KD Display Logic
+            if st.session_state.get("draft_mode") == "kd_balanced":
+                # Find KD
+                try:
+                    p_kd = player_df[player_df['name'] == name]['avg_kd'].iloc[0]
+                    display_name = f"{display_name} ({p_kd})"
+                except:
+                    pass
 
             if name == cap1_name or name == cap2_name: return f"👑 {display_name}"
             return display_name

@@ -3,15 +3,23 @@ import itertools
 import random
 from database import get_player_stats
 
-def get_best_combinations(selected_players, force_split=None, force_together=None):
+def get_best_combinations(selected_players, force_split=None, force_together=None, metric="overall"):
     """
     Generates balanced team combinations.
     force_split: A list of 2 player names that MUST be on opposite teams.
     force_together: A list of player names that MUST be on the same team.
+    metric: The dataframe column to use for balancing (default: 'overall', can be 'avg_kd').
     """
     df = get_player_stats()
     subset = df[df['name'].isin(selected_players)].copy()
-    scores = dict(zip(subset['name'], subset['overall']))
+    
+    # Select scoring metric
+    if metric == "avg_kd":
+        # Ensure we don't have NaNs for logic
+        subset['avg_kd'] = subset['avg_kd'].fillna(0.0)
+        scores = dict(zip(subset['name'], subset['avg_kd']))
+    else:
+        scores = dict(zip(subset['name'], subset['overall']))
     
     all_combos = list(itertools.combinations(selected_players, 5))
     valid_combos = []

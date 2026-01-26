@@ -7,7 +7,7 @@ from cybershoke import get_lobby_link, set_lobby_link, clear_lobby_link, create_
 from discord_bot import send_full_match_info, send_lobby_to_discord
 from demo_download import download_demo
 from demo_analysis import analyze_demo_file
-from match_stats_db import save_match_stats
+from match_stats_db import save_match_stats, get_all_lobbies, update_lobby_status, add_lobby
 import os
 
 def render_admin_tab():
@@ -47,8 +47,8 @@ def render_admin_tab():
             st.rerun()
 
         # Tabs for better organization
-        tab_lobby, tab_queue, tab_demos, tab_players, tab_danger = st.tabs([
-            "🚀 Lobby", "🔄 Match Queue", "🎥 Demo Analyzer", "👥 Players", "⚠️ Danger Zone"
+        tab_lobby, tab_history_admin, tab_queue, tab_demos, tab_players, tab_danger = st.tabs([
+            "🚀 Lobby", "📜 Lobby History", "🔄 Match Queue", "🎥 Demo Analyzer", "👥 Players", "⚠️ Danger Zone"
         ])
 
         # --- Tab 1: Lobby & Session ---
@@ -99,9 +99,9 @@ def render_admin_tab():
                 # Button 2: Send Full Draft
                 if st.button("📢 Send DRAFT to Discord", use_container_width=True):
                     # Try to retrieve draft state
-                    state = load_draft_state() # (t1, t2, na, nb, avg1, avg2, map, lobby, mid)
+                    state = load_draft_state() # (t1, t2, na, nb, avg1, avg2, map, lobby, mid, mode)
                     if state:
-                        t1, t2, na, nb, _, _, current_map, s_lobby, _ = state
+                        t1, t2, na, nb, _, _, current_map, s_lobby, _, _ = state
                         # Ensure we use the current lobby link from DB/Input
                         s_lobby = curr_link 
                         
@@ -112,6 +112,96 @@ def render_admin_tab():
                         st.success("Sent full match info to Discord!")
                     else:
                         st.error("No active draft found in database!")
+
+        # --- Tab 1.5: Lobby History ---
+        with tab_history_admin:
+            st.subheader("📜 Cybershoke Lobby History")
+            
+            # Refresh button
+            if st.button("🔄 Refresh History"):
+                st.rerun()
+
+            all_lobbies = get_all_lobbies()
+            
+            if not all_lobbies.empty:
+                # Display Summary
+                st.dataframe(all_lobbies, use_container_width=True, hide_index=True)
+                
+                st.divider()
+                st.subheader("🛠️ Management")
+                
+                # Action Selection
+                selected_lobby = st.selectbox("Select Lobby to Manage", all_lobbies['lobby_id'].tolist())
+                
+                if selected_lobby:
+                    row = all_lobbies[all_lobbies['lobby_id'] == str(selected_lobby)].iloc[0]
+                    st.info(f"Selected: **{selected_lobby}** | Created: {row['created_at']} | Status: {row['analysis_status']}")
+                    
+                    col_h1, col_h2, col_h3 = st.columns(3)
+                    
+                    with col_h1:
+                        if st.button("📥 Download & Analyze", type="primary", use_container_width=True):
+                             with st.spinner(f"Processing Lobby {selected_lobby}..."):
+                                 # 1. Download
+                                 success, msg = download_demo(str(selected_lobby), st.session_state.admin_user)
+                                 
+                                 if success:
+                                     # 2. Analyze
+                                     expected_filename = f"demos/match_{selected_lobby}.dem"
+                                     if os.path.exists(expected_filename):
+                                         try:
+                                             st.text("Analyzing demo file...")
+                                             score_res, stats_res, map_name, score_t, score_ct = analyze_demo_file(expected_filename)
+                                             
+                                             if stats_res is not None:
+                                                 # Save stats
+                                                 match_id = f"match_{selected_lobby}"
+                                                 save_match_stats(match_id, str(selected_lobby), score_res, stats_res, map_name, score_t, score_ct)
+                                                 
+                                                 # Update Lobby Status
+                                                 update_lobby_status(selected_lobby, has_demo=1, status='analyzed')
+                                                 
+                                                 st.success(f"Analyzed & Saved! Result: {score_res}")
+                                             else:
+                                                  st.error("Analysis failed (parse error).")
+                                                  update_lobby_status(selected_lobby, status='error')
+                                         except Exception as e:
+                                             st.error(f"Error during analysis: {e}")
+                                             update_lobby_status(selected_lobby, status='error')
+                                         finally:
+                                             if os.path.exists(expected_filename):
+                                                 os.remove(expected_filename)
+                                     else:
+                                         st.error("Demo file not found after download reported success.")
+                                 else:
+                                     st.error(f"Download failed: {msg}")
+                                 
+                                 time.sleep(2)
+                                 st.rerun()
+
+                    with col_h2:
+                        if st.button("🚫 Mark 'No Demo'", use_container_width=True):
+                            update_lobby_status(selected_lobby, has_demo=-1, status='no_demo')
+                            st.success("Marked as having no demo.")
+                            time.sleep(1)
+                            st.rerun()
+                            
+                    with col_h3:
+                        if st.button("📝 Add New ID Manually", use_container_width=True):
+                            # Opens expando/input below ? Or just use a text input nearby
+                            pass # Handled by separate input block below
+            else:
+                st.info("No lobbies recorded yet.")
+
+            st.divider()
+            with st.expander("Manually Track a Lobby ID"):
+                man_id = st.text_input("Enter Cybershoke Lobby ID (numbers only)")
+                if st.button("Add to History"):
+                    if man_id.strip():
+                        add_lobby(man_id.strip())
+                        st.success(f"Added {man_id}")
+                        time.sleep(1)
+                        st.rerun()
 
         # --- Tab 2: Match Queue Processor ---
         with tab_queue:

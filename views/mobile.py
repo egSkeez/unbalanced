@@ -70,6 +70,14 @@ def render_mobile_vote_page(token):
             st.rerun()
         return
 
+    if current_vote == "Approve":
+        st.success("✅ You have approved the draft.")
+        st.info("⏳ Waiting for the other captain to confirm...")
+        st.caption("Auto-refreshing...")
+        time.sleep(2)
+        st.rerun()
+        return
+
     rem, prot, turn_team = get_veto_state()
     
     if not rem: 

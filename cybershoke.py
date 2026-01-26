@@ -51,6 +51,14 @@ def create_cybershoke_lobby_api(admin_name="Skeez"):
             data = response.json()
             if data.get("result") == "success":
                 lobby_id = data["data"]["id_lobby"]
+                
+                # Persist to lobby history
+                try:
+                   from match_stats_db import add_lobby
+                   add_lobby(lobby_id)
+                except Exception as e:
+                   print(f"Failed to track lobby history: {e}")
+                
                 return f"https://cybershoke.net/match/{lobby_id}", lobby_id
             else:
                 print(f"API returned error for {admin_name}:", data.get("message"))
