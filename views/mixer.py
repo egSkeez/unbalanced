@@ -299,7 +299,13 @@ def render_mixer_tab(player_df):
     else:
         t1_unsorted, t2_unsorted, avg1, avg2, _ = st.session_state.final_teams 
         name_a, name_b = st.session_state.assigned_names
-        score_map = dict(zip(player_df['name'], player_df['overall']))
+        # Decide which metric to sort by for display
+        if st.session_state.get("draft_mode") == "kd_balanced":
+             # Use fillna logic similar to logic.py or trust database.py's fillna
+             score_map = dict(zip(player_df['name'], player_df['avg_kd']))
+        else:
+             score_map = dict(zip(player_df['name'], player_df['overall']))
+             
         t1 = sorted(t1_unsorted, key=lambda x: score_map.get(x, 0), reverse=True)
         t2 = sorted(t2_unsorted, key=lambda x: score_map.get(x, 0), reverse=True)
         

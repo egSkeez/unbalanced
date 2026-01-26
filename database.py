@@ -3,6 +3,7 @@ import sqlite3
 import pandas as pd
 import json
 from constants import PLAYERS_INIT
+from season_logic import get_current_season_info
 
 # --- DATABASE INITIALIZATION ---
 def init_db():
@@ -145,13 +146,17 @@ def get_player_stats():
     # Get base player data
     df = pd.read_sql_query("SELECT name, aim, util, team_play, secret_word FROM players", conn)
     
-    # Calculate average K/D from match statistics
-    kd_query = '''
+    # Calculate average K/D from match statistics FILTERED BY CURRENT SEASON (Season 2)
+    _, s2_start, _ = get_current_season_info()
+    
+    kd_query = f'''
         SELECT 
-            player_name,
-            ROUND(SUM(kills) * 1.0 / NULLIF(SUM(deaths), 0), 2) as avg_kd
-        FROM player_match_stats
-        GROUP BY player_name
+            pms.player_name,
+            ROUND(SUM(pms.kills) * 1.0 / NULLIF(SUM(pms.deaths), 0), 2) as avg_kd
+        FROM player_match_stats pms
+        JOIN match_details md ON pms.match_id = md.match_id
+        WHERE date(md.date_analyzed) >= date('{s2_start}')
+        GROUP BY pms.player_name
     '''
     kd_df = pd.read_sql_query(kd_query, conn)
     
