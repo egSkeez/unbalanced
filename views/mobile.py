@@ -39,7 +39,7 @@ def render_mobile_vote_page(token):
     # --- SHOW TEAM MEMBERS FOR THIS CAPTAIN ---
     saved = load_draft_state()
     if saved:
-        t1_json, t2_json, n_a, n_b, _, _, _, _, _ = saved
+        t1_json, t2_json, n_a, n_b, _, _, _, _, _, _ = saved
         
         st.markdown("### ⚔️ Matchup")
         
@@ -101,7 +101,7 @@ def render_mobile_vote_page(token):
 
     saved = load_draft_state()
     if not saved: return
-    t1_json, t2_json, n_a, n_b, _, _, _, _, _ = saved
+    t1_json, t2_json, n_a, n_b, _, _, _, _, _, _ = saved
     
     my_team_name = n_a if cap_name in t1_json else n_b
     opp_team_name = n_b if my_team_name == n_a else n_a
