@@ -15,15 +15,40 @@ def analyze_demo_file(demo_path):
     - score_t: T side score
     - score_ct: CT side score
     """
-    # Path to the Go binary
-    # Assumes the binary is located at go_parser/parser.exe relative to this script
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    go_binary = os.path.join(current_dir, "go_parser", "parser.exe")
+    # Determine current OS and binary name
+    import platform
+    system = platform.system()
+    binary_name = "parser.exe" if system == "Windows" else "parser"
     
-    # Check if binary exists, if not, try to build it or warn
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    go_dir = os.path.join(current_dir, "go_parser")
+    go_binary = os.path.join(go_dir, binary_name)
+    go_source = os.path.join(go_dir, "main.go")
+    
+    # Check if binary exists, if not, try to build it
     if not os.path.exists(go_binary):
-        print(f"Error: Go binary not found at {go_binary}")
-        return "Parser not found", None, "Unknown", 0, 0
+        print(f"Parser binary not found at {go_binary}. Attempting to build from source...")
+        if os.path.exists(go_source):
+            try:
+                # Build command: go build -o parser.exe main.go
+                build_cmd = ["go", "build", "-o", binary_name, "main.go"]
+                print(f"Running build: {' '.join(build_cmd)}")
+                build_res = subprocess.run(build_cmd, cwd=go_dir, capture_output=True, text=True)
+                
+                if build_res.returncode == 0:
+                    print("Build successful.")
+                else:
+                    print(f"Build failed: {build_res.stderr}")
+                    return f"Build Error: {build_res.stderr}", None, "Unknown", 0, 0
+            except Exception as e:
+                print(f"Could not build Go parser: {e}")
+                return "Build Failed (Go installed?)", None, "Unknown", 0, 0
+        else:
+            print(f"Go source not found at {go_source}")
+            return "Parser Source Not Found", None, "Unknown", 0, 0
+            
+    if not os.path.exists(go_binary):
+        return "Parser not found and build failed", None, "Unknown", 0, 0
 
     try:
         # Run Go parser
