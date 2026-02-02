@@ -143,6 +143,7 @@ def get_lobby_player_stats(lobby_id):
         lobby_data = data.get("data", {})
         players_dict = lobby_data.get("players", {})
         
+        stats = {}
         # print(f"DEBUG: Found {len(players_dict)} players")
         for pid, p_data in players_dict.items():
             nick = p_data.get("name")
