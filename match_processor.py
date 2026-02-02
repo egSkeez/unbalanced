@@ -54,32 +54,52 @@ def process_match_queue(admin_name="Skeez"):
             if stats_res is None:
                 raise Exception(f"Analysis failed: {score_res}")
 
-            # --- DOUBLE CHECK WITH WEB STATS ---
+            # --- DOUBLE CHECK WITH WEB STATS (SOURCE OF TRUTH) ---
             try:
                 print(f"Verifying stats for match {match_id} against web...")
                 web_stats = get_lobby_player_stats(match_id)
                 if web_stats:
-                    # Basic consistency check on Kill counts
                     mismatches = []
-                    for _, row in stats_res.iterrows():
-                        p_name = row['Player']
-                        p_kills = row['Kills']
-                        if p_name in web_stats:
-                            web_kills = web_stats[p_name]
-                            # Allow slight deviation? specific rules? strict for now.
-                            if p_kills != web_kills:
-                                mismatches.append(f"{p_name}: Demo={p_kills}, Web={web_kills}")
+                    # We will loop through the DataFrame and CORRECT the stats if they differ
+                    # The Web API is the Source of Truth for Kills, Deaths, Assists, Headshots
                     
+                    # Create a map for quick lookups
+                    # We handle potential name differences by matching names exactly for now
+                    # (The demo parser might clean names differently, but usually they match)
+                    
+                    for index, row in stats_res.iterrows():
+                        p_name = row['Player']
+                        
+                        if p_name in web_stats:
+                            web_data = web_stats[p_name] # Expecting dict or int depending on what we return
+                            
+                            # Our get_lobby_player_stats currently returns just Kills (int)
+                            # We should probably update it to return more if we want to correct more.
+                            # For now, let's correct Kills.
+                            
+                            # Update: We need to enhance get_lobby_player_stats to returns dict of {kills, deaths, assists, hs}
+                            # Assuming get_lobby_player_stats returns just kills for now based on previous step. 
+                            # I will update cybershoke.py first to return full object.
+                            
+                            web_kills = web_stats[p_name]
+                            demo_kills = row['Kills']
+                            
+                            if demo_kills != web_kills:
+                                mismatches.append(f"{p_name}: Demo={demo_kills} -> Web={web_kills} (Fixed)")
+                                stats_res.at[index, 'Kills'] = web_kills
+                                # We might need to reject other derived stats or leave them inconsistent?
+                                # Ideally we leave ADR/Utility as is, but Kills are fixed.
+                                
                     if mismatches:
-                        warn_msg = f"⚠️ Stats Mismatch for {match_id}: " + ", ".join(mismatches)
+                        warn_msg = f"⚠️ Corrected Stats for {match_id}: " + ", ".join(mismatches)
                         print(warn_msg)
                         results_log.append(warn_msg)
                     else:
-                        print("✅ Web stats verification passed.")
+                        print("✅ Web stats verification passed (No changes needed).")
                 else:
                     print("⚠️ Could not fetch web stats for verification.")
             except Exception as e:
-                print(f"Stats verification failed: {e}")
+                print(f"Stats verification/correction failed: {e}")
             # -----------------------------------
             
             # 4. Save to Database
