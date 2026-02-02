@@ -64,10 +64,16 @@ def init_match_stats_tables():
         pass
     
     # Migrations for Extended Stats
-    new_cols = ['total_spent', 'entry_kills', 'entry_deaths', 'clutch_wins', 'rounds_last_alive', 'team_flashed']
+    new_cols = ['total_spent', 'entry_kills', 'entry_deaths', 'clutch_wins', 'rounds_last_alive', 'team_flashed',
+                'flash_assists', 'bomb_plants', 'bomb_defuses', 'multi_kills', 'weapon_kills']
     for col in new_cols:
         try:
-            c.execute(f"ALTER TABLE player_match_stats ADD COLUMN {col} INTEGER DEFAULT 0")
+            col_type = "TEXT" if "json" in col or "kills" in col and "entry" not in col else "INTEGER"
+            # specific override for multi/weapon kills which are dicts -> text
+            if col in ['multi_kills', 'weapon_kills']:
+                col_type = "TEXT"
+                
+            c.execute(f"ALTER TABLE player_match_stats ADD COLUMN {col} {col_type} DEFAULT 0")
         except:
             pass
     
@@ -85,17 +91,10 @@ def init_match_stats_tables():
 def save_match_stats(match_id, cybershoke_id, score_str, stats_df, map_name="Unknown", score_t=0, score_ct=0):
     """
     Saves match statistics to the database.
-    
-    Args:
-        match_id: Unique identifier for this match (e.g., "match_5394408")
-        cybershoke_id: The Cybershoke match ID
-        score_str: Score string like "T 13 - 10 CT"
-        stats_df: DataFrame with player statistics
-        map_name: Map name if available
-        score_t: T side score (optional, will parse from score_str if not provided)
-        score_ct: CT side score (optional, will parse from score_str if not provided)
     """
-    conn = sqlite3.connect('cs2_history.db')
+    import json
+    
+    conn = sqlite3.connect('cs2_history.db', timeout=30)
     c = conn.cursor()
     
     # Use provided scores or parse from string
@@ -123,9 +122,20 @@ def save_match_stats(match_id, cybershoke_id, score_str, stats_df, map_name="Unk
     c.execute("DELETE FROM player_match_stats WHERE match_id = ?", (match_id,))
     
     # Insert player stats
+    # from database import update_player_steamid # Removed immediate call to avoid lock
+    
+    steam_id_updates = [] # Collect (name, steamid) to update later
+    
     for _, row in stats_df.iterrows():
         # Determine Result
         p_team = row.get('TeamNum', 0)
+        p_name = row.get('Player', '')
+        p_steam = str(row.get('SteamID', ''))
+        
+        # Queue SteamID update
+        if p_name and p_steam:
+            steam_id_updates.append((p_name, p_steam))
+
         result = 'T' # Tie default
         
         if score_t > score_ct:
@@ -135,49 +145,79 @@ def save_match_stats(match_id, cybershoke_id, score_str, stats_df, map_name="Unk
         else:
             result = 'D' # Draw
             
+        # Serialize JSON fields
+        multi_kills_json = json.dumps(row.get('MultiKills', {}))
+        weapon_kills_json = json.dumps(row.get('WeaponKills', {}))
+
         c.execute('''INSERT INTO player_match_stats 
-                     (match_id, player_name, steamid, kills, deaths, assists, score, 
-                      damage, adr, headshot_kills, headshot_pct, util_damage, 
-                      enemies_flashed, kd_ratio, player_team, match_result,
-                      total_spent, entry_kills, entry_deaths, clutch_wins, rounds_last_alive, team_flashed)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                  (match_id,
-                   row.get('Player', ''),
-                   '',  # steamid not in current df
-                   row.get('Kills', 0),
-                   row.get('Deaths', 0),
-                   row.get('Assists', 0),
-                   row.get('Score', 0),
-                   row.get('Damage', 0),
-                   row.get('ADR', 0.0),
-                   row.get('HS_Count', 0),
-                   row.get('HS%', 0.0),
-                   row.get('UtilDmg', 0),
-                   row.get('Flashed', 0),
-                   row.get('K/D', 0.0),
-                   p_team,
-                   result,
-                   # New Stats
-                   row.get('TotalSpent', 0),
-                   row.get('EntryKills', 0),
-                   row.get('EntryDeaths', 0),
-                   row.get('ClutchWins', 0),
-                   row.get('BaiterRating', 0),
-                   row.get('TeamFlashed', 0)
-                   ))
+                      (match_id, player_name, steamid, kills, deaths, assists, score, 
+                       damage, adr, headshot_kills, headshot_pct, util_damage, 
+                       enemies_flashed, kd_ratio, player_team, match_result,
+                       total_spent, entry_kills, entry_deaths, clutch_wins, rounds_last_alive, team_flashed,
+                       flash_assists, bomb_plants, bomb_defuses, multi_kills, weapon_kills)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                   (match_id,
+                    p_name,
+                    p_steam,
+                    row.get('Kills', 0),
+                    row.get('Deaths', 0),
+                    row.get('Assists', 0),
+                    row.get('Score', 0),
+                    row.get('Damage', 0),
+                    row.get('ADR', 0.0),
+                    row.get('Headshots', 0),     # Corrected from HS_Count
+                    row.get('HS%', 0.0),
+                    row.get('UtilityDamage', 0), # Corrected from UtilDmg
+                    row.get('Flashed', 0),
+                    row.get('K/D', 0.0),
+                    p_team,
+                    result,
+                    # New Stats
+                    row.get('TotalSpent', 0),
+                    row.get('EntryKills', 0),
+                    row.get('EntryDeaths', 0),
+                    row.get('ClutchWins', 0),
+                    row.get('BaiterRating', 0),
+                    row.get('TeamFlashed', 0),
+                    row.get('FlashAssists', 0),
+                    row.get('BombPlants', 0),
+                    row.get('BombDefuses', 0),
+                    multi_kills_json,
+                    weapon_kills_json
+                    ))
     
     conn.commit()
     conn.close()
+    
+    # Process Steam ID updates now that lock is released
+    from database import update_player_steamid
+    for name, steam in steam_id_updates:
+        try:
+            update_player_steamid(name, steam)
+        except Exception as e:
+            print(f"Failed to update steamid for {name}: {e}")
 
 def get_player_aggregate_stats(player_name, start_date=None, end_date=None):
     """
     Get aggregate statistics for a player, optionally filtered by date range (season).
-    start_date and end_date should be strings 'YYYY-MM-DD' or date objects.
+    Prefers SteamID for aggregation if available.
     """
     conn = sqlite3.connect('cs2_history.db')
     
-    where_clause = "WHERE pms.player_name = ?"
-    params = [player_name]
+    # 1. Try to find SteamID for this player
+    c = conn.cursor()
+    c.execute("SELECT steamid FROM players WHERE name = ?", (player_name,))
+    row = c.fetchone()
+    steamid = row[0] if row else None
+    
+    if steamid:
+        # Match by SteamID OR Name (to catch legacy matches)
+        where_clause = "WHERE (pms.steamid = ? OR pms.player_name = ?)"
+        params = [steamid, player_name]
+    else:
+        # Fallback to name if no Steam ID linked
+        where_clause = "WHERE pms.player_name = ?"
+        params = [player_name]
     
     if start_date:
         where_clause += " AND date(md.date_analyzed) >= date(?)"
@@ -195,6 +235,16 @@ def get_player_aggregate_stats(player_name, start_date=None, end_date=None):
             ROUND(AVG(pms.adr), 1) as avg_adr,
             ROUND(AVG(NULLIF(pms.headshot_pct, 0)), 1) as avg_hs_pct,
             ROUND(SUM(pms.kills) * 1.0 / NULLIF(SUM(pms.deaths), 0), 2) as overall_kd,
+            
+            -- Extended Stats Aggregates
+            SUM(pms.entry_kills) as total_entry_kills,
+            SUM(pms.entry_deaths) as total_entry_deaths,
+            SUM(pms.util_damage) as total_util_dmg,
+            SUM(pms.flash_assists) as total_flash_assists,
+            SUM(pms.enemies_flashed) as total_enemies_flashed,
+            SUM(pms.bomb_plants) as total_plants,
+            SUM(pms.bomb_defuses) as total_defuses,
+            SUM(pms.clutch_wins) as total_clutches,
             
             -- Calculate Winrate from Match Result column
             COUNT(CASE WHEN pms.match_result = 'W' THEN 1 END) as wins,
@@ -258,6 +308,10 @@ def get_season_stats_dump(start_date, end_date):
             SUM(pms.clutch_wins) as total_clutches,
             SUM(pms.total_spent) as total_spent_cash,
             SUM(pms.enemies_flashed) as total_flashed,
+            SUM(pms.flash_assists) as total_flash_assists,
+            SUM(pms.util_damage) as total_util_dmg,
+            SUM(pms.bomb_plants) as total_plants,
+            SUM(pms.bomb_defuses) as total_defuses,
             AVG(pms.adr) as avg_adr,
             AVG(NULLIF(pms.headshot_pct, 0)) as avg_hs_pct,
             
@@ -282,6 +336,13 @@ def get_season_stats_dump(start_date, end_date):
         df['avg_bait_rounds'] = df['total_bait_rounds'] / df['matches_played']
         df['avg_spent'] = df['total_spent_cash'] / df['matches_played']
         df['avg_flashed'] = df['total_flashed'] / df['matches_played']
+        
+        # New Averages
+        df['avg_util_dmg'] = df['total_util_dmg'] / df['matches_played']
+        df['avg_flash_assists'] = df['total_flash_assists'] / df['matches_played']
+        df['avg_plants'] = df['total_plants'] / df['matches_played']
+        df['avg_defuses'] = df['total_defuses'] / df['matches_played']
+        
         df['winrate'] = (df['wins'] / df['matches_played']) * 100
         
     conn.close()
@@ -330,3 +391,25 @@ def update_lobby_status(lobby_id, has_demo=None, status=None):
         print(f"Error updating lobby: {e}")
     finally:
         conn.close()
+
+def get_match_scoreboard(match_id):
+    """
+    Retrieves the full scoreboard (player stats) for a specific match.
+    """
+    conn = sqlite3.connect('cs2_history.db', timeout=30)
+    query = '''
+        SELECT 
+            player_name, player_team, 
+            kills, deaths, assists, 
+            adr, headshot_pct, score,
+            util_damage, flash_assists, enemies_flashed,
+            entry_kills, entry_deaths,
+            total_spent,
+            multi_kills, weapon_kills
+        FROM player_match_stats
+        WHERE match_id = ?
+        ORDER BY score DESC
+    '''
+    df = pd.read_sql_query(query, conn, params=(str(match_id),))
+    conn.close()
+    return df

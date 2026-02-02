@@ -1,21 +1,55 @@
 # views/history.py
 import streamlit as st
 import pandas as pd
-import sqlite3
-import json
+from match_stats_db import get_recent_matches, get_match_scoreboard
 
 def render_history_tab():
-    st.title("📜 History")
-    conn = sqlite3.connect('cs2_history.db')
-    hist_df = pd.read_sql_query("SELECT * FROM matches ORDER BY date DESC", conn)
-    conn.close()
+    st.title("📜 Match History (Parsed Demos)")
     
-    if hist_df.empty:
-        st.info("No matches played yet.")
-    else:
-        for _, row in hist_df.iterrows():
-            winner = row['team1_name'] if row['winner_idx'] == 1 else row['team2_name']
-            with st.expander(f"🎮 {row['date'].split()[0]} | {winner} on {row['map']}"):
-                c_a, c_b = st.columns(2)
-                with c_a: st.write(f"**🟦 {row['team1_name']}**"); st.write(row['team1_players'])
-                with c_b: st.write(f"**🟧 {row['team2_name']}**"); st.write(row['team2_players'])
+    # Fetch matched from the Parsed DB
+    matches_df = get_recent_matches(limit=20)
+    
+    if matches_df.empty:
+        st.info("No parsed matches found.")
+        return
+
+    for _, match in matches_df.iterrows():
+        mid = match['match_id']
+        score = match['score']
+        m_map = match['map']
+        date = match['date_analyzed']
+        
+        # Display Header
+        with st.expander(f"🎮 {date} | {m_map} | {score}"):
+            # Fetch details
+            stats = get_match_scoreboard(mid)
+            
+            if stats.empty:
+                st.warning("No player stats found for this match.")
+                continue
+                
+            # Split by Team (2 = T / 3 = CT usually depending on side swap, but we group by ID)
+            # We'll just group by team number
+            teams = stats['player_team'].unique()
+            
+            # Create columns for teams
+            cols = st.columns(len(teams)) if len(teams) > 0 else [st.container()]
+            
+            for i, team_id in enumerate(sorted(teams)):
+                team_stats = stats[stats['player_team'] == team_id].copy()
+                
+                # Clean up display columns
+                display_cols = ['player_name', 'kills', 'deaths', 'assists', 'adr', 'util_damage', 'flash_assists', 'entry_kills']
+                
+                with cols[i] if i < len(cols) else st.container():
+                    team_name = "Terrorists" if team_id == 2 else "CTs" if team_id == 3 else f"Team {team_id}"
+                    st.subheader(f"{team_name} ({len(team_stats)})")
+                    
+                    st.dataframe(
+                        team_stats[display_cols].style.format({
+                            'adr': "{:.1f}",
+                            'util_damage': "{:.0f}"
+                        }),
+                        use_container_width=True,
+                        hide_index=True
+                    )

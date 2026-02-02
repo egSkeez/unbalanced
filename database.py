@@ -17,6 +17,11 @@ def init_db():
         c.execute("ALTER TABLE players ADD COLUMN secret_word TEXT DEFAULT 'cs2pro'")
     except:
         pass 
+        
+    try:
+        c.execute("ALTER TABLE players ADD COLUMN steamid TEXT")
+    except:
+        pass
 
     c.execute('''CREATE TABLE IF NOT EXISTS matches 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, team1_name TEXT, team2_name TEXT,
@@ -203,6 +208,37 @@ def get_player_secret(name):
     res = c.fetchone()
     conn.close()
     return res[0] if res else "UNKNOWN"
+
+def update_player_steamid(player_name, steamid):
+    """
+    Links a player name to a Steam ID.
+    """
+    if not steamid or steamid == "0":
+        return
+        
+    conn = sqlite3.connect('cs2_history.db', timeout=30)
+    c = conn.cursor()
+    try:
+        # Check if this player exists
+        c.execute("SELECT steamid FROM players WHERE name = ?", (player_name,))
+        row = c.fetchone()
+        
+        if row:
+            current_steamid = row[0]
+            # Update if empty or different (could handle conflict logic here)
+            if not current_steamid:
+                c.execute("UPDATE players SET steamid = ? WHERE name = ?", (str(steamid), player_name))
+                print(f"Linked {player_name} to SteamID {steamid}")
+        else:
+            # Player not in our Elo system, ignore or auto-add? 
+            # For now, ignore implicit adds to avoid cluttering main leaderboard with randoms
+            pass
+            
+        conn.commit()
+    except Exception as e:
+        print(f"Error updating steamid: {e}")
+    finally:
+        conn.close()
 
 # --- VOTING & PIN FUNCTIONS ---
 def set_draft_pins(cap1, word1, cap2, word2):

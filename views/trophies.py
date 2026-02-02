@@ -114,6 +114,18 @@ def render_trophies_tab():
         # 5. NEW: Ambouba (Most Flashes)
         add_s_trophy('avg_flashed', "Ambouba", "🔦", "flash/game", "linear-gradient(135deg, #E0EAFC, #CFDEF3)", "#FFF")
         
+        # 5b. NEW: Utility King (Avg Util Dmg)
+        add_s_trophy('avg_util_dmg', "Utility King", "🧨", "dmg/game", "linear-gradient(135deg, #cc2b5e, #753a88)", "#cc2b5e")
+        
+        # 5c. NEW: Blind Master (Flash Assists)
+        add_s_trophy('avg_flash_assists', "Blind Master", "🕶️", "fa/game", "linear-gradient(135deg, #42275a, #734b6d)", "#734b6d")
+        
+        # 5d. NEW: The Planter (Avg Plants)
+        add_s_trophy('avg_plants', "The Planter", "🌱", "plants/game", "linear-gradient(135deg, #F2994A, #F2C94C)", "#F2994A")
+        
+        # 5e. NEW: Ninja (Avg Defuses)
+        add_s_trophy('avg_defuses', "The Ninja", "✂️", "defs/game", "linear-gradient(135deg, #11998e, #38ef7d)", "#11998e")
+        
         # 6. Master Baiter relative to team? No just absolute avg rounds last alive
         add_s_trophy('avg_bait_rounds', "Master Baiter", "🎣", "baits/game", "linear-gradient(135deg, #00C6FF, #0072FF)", "#00C6FF")
         
@@ -199,6 +211,11 @@ def render_trophies_tab():
         add_trophy("Master Baiter", "🎣", "rounds_last_alive", "Rounds", "linear-gradient(135deg, #00C6FF, #0072FF)", "#00C6FF")
         add_trophy("Big Spender", "💸", "total_spent", "", "linear-gradient(135deg, #11998e, #38ef7d)", "#38ef7d")
         add_trophy("Clutch God", "🧱", "clutch_wins", "Wins", "linear-gradient(135deg, #8E2DE2, #4A00E0)", "#8E2DE2")
+        
+        # New Match Trophies
+        add_trophy("Utility King", "🧨", "util_damage", "Dmg", "linear-gradient(135deg, #cc2b5e, #753a88)", "#cc2b5e")
+        add_trophy("Blind Master", "🕶️", "flash_assists", "Assists", "linear-gradient(135deg, #42275a, #734b6d)", "#734b6d")
+        add_trophy("The Planter", "🌱", "bomb_plants", "Plants", "linear-gradient(135deg, #F2994A, #F2C94C)", "#F2994A")
         
         # Render Grid
         cols = st.columns(3)

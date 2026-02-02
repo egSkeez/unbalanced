@@ -110,7 +110,7 @@ def render_stats_tab():
                     WHERE 1=1 {date_filter_sql}
                     GROUP BY pms.player_name
                     HAVING matches >= 1
-                    ORDER BY avg_score DESC
+                    ORDER BY avg_adr DESC
                 '''
                 leaderboard = pd.read_sql_query(leaderboard_query, conn, params=params)
                 conn.close()
@@ -121,23 +121,25 @@ def render_stats_tab():
                     valid = leaderboard['Matches'] > 0
                     leaderboard.loc[valid, 'Winrate'] = (leaderboard.loc[valid, 'wins'] / leaderboard.loc[valid, 'Matches'] * 100).round(1)
                     
-                    st.markdown("### 🥇 Top 3 Players (Season 2)")
-                    eligible_top_3 = leaderboard[leaderboard['matches'] >= 2].head(3) # Lowered threshold to 2 for now
+                    st.markdown("### 🥇 Top 5 Players (Season 2) - Sorted by ADR")
+                    eligible_top_5 = leaderboard[leaderboard['matches'] >= 2].head(5) # Lowered threshold to 2 for now
                     
-                    if not eligible_top_3.empty:
-                        medals = ["🥇", "🥈", "🥉"]
+                    if not eligible_top_5.empty:
+                        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
                         colors = [
-                            "linear-gradient(135deg, #FFD700 0%, #FFA500 100%)",
-                            "linear-gradient(135deg, #C0C0C0 0%, #808080 100%)",
-                            "linear-gradient(135deg, #CD7F32 0%, #8B4513 100%)"
+                            "linear-gradient(135deg, #FFD700 0%, #FFA500 100%)", # Gold
+                            "linear-gradient(135deg, #C0C0C0 0%, #808080 100%)", # Silver
+                            "linear-gradient(135deg, #CD7F32 0%, #8B4513 100%)", # Bronze
+                            "linear-gradient(135deg, #606c88 0%, #3f4c6b 100%)", # Slate
+                            "linear-gradient(135deg, #2b5876 0%, #4e4376 100%)"  # Deep Blue
                         ]
-                        for idx in range(len(eligible_top_3)):
-                            player = eligible_top_3.iloc[idx]
+                        for idx in range(len(eligible_top_5)):
+                            player = eligible_top_5.iloc[idx]
                             st.markdown(f"""
                             <div style="background: {colors[idx]}; padding: 20px; border-radius: 15px; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
                                 <h2 style="color: white; margin: 0;">{medals[idx]} {player['player_name']}</h2>
                                 <p style="color: #f0f0f0; margin: 5px 0; font-size: 18px;">
-                                    Score: {player['avg_score']} | K/D: {player['kd_ratio']} | WR: {player['Winrate']}%
+                                    ADR: {player['avg_adr']} | K/D: {player['kd_ratio']} | WR: {player['Winrate']}%
                                 </p>
                             </div>
                             """, unsafe_allow_html=True)
@@ -206,6 +208,52 @@ def render_stats_tab():
                     with c1: st.metric("K/D", stats['overall_kd'].iloc[0])
                     with c2: st.metric("ADR", stats['avg_adr'].iloc[0])
                     with c3: st.metric("HS%", f"{stats['avg_hs_pct'].iloc[0]}%")
+                    
+                    st.divider()
+                    
+                    # --- EXTENDED STATS GRID ---
+                    st.subheader("📊 Detailed Performance")
+                    
+                    # Helper for stat card
+                    def stat_card(icon, label, value, color="#FFF"):
+                        st.markdown(f"""
+                        <div style="
+                            background: rgba(255,255,255,0.05); 
+                            border-radius: 10px; 
+                            padding: 15px; 
+                            text-align: center;
+                            border: 1px solid #333;
+                        ">
+                            <div style="font-size: 24px; margin-bottom: 5px;">{icon}</div>
+                            <div style="color: #888; font-size: 12px; text-transform: uppercase; font-weight: bold;">{label}</div>
+                            <div style="color: {color}; font-size: 18px; font-weight: bold;">{value}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                    s = stats.iloc[0]
+                    
+                    # Row 1: Combat
+                    st.caption("⚔️ Combat")
+                    r1c1, r1c2, r1c3, r1c4 = st.columns(4)
+                    with r1c1: stat_card("👑", "Entry Kills", int(s['total_entry_kills']), "#FFD700")
+                    with r1c2: stat_card("🔥", "Clutches", int(s['total_clutches']), "#FF4B2B")
+                    with r1c3: stat_card("🧱", "Wallbangs/Multi", int(s.get('multi_3k', 0) + s.get('multi_4k', 0) + s.get('multi_5k', 0)), "#DDD") # Placeholder until detail available
+                    with r1c4: stat_card("💀", "Entry Deaths", int(s['total_entry_deaths']), "#e74c3c")
+                    
+                    # Row 2: Utility
+                    st.caption("💣 Utility & Support")
+                    r2c1, r2c2, r2c3, r2c4 = st.columns(4)
+                    with r2c1: stat_card("💥", "Util Dmg", int(s['total_util_dmg']), "#00C6FF")
+                    with r2c2: stat_card("🔦", "Enemies Flashed", int(s['total_enemies_flashed']), "#FFF")
+                    with r2c3: stat_card("🤝", "Flash Assists", int(s['total_flash_assists']), "#38ef7d")
+                    with r2c4: stat_card("🌱", "Plants", int(s['total_plants']), "#ffa751")
+                    
+                    # Row 3: Objectives
+                    st.caption("🛡️ Objectives")
+                    r3c1, r3c2, r3c3 = st.columns(3)
+                    with r3c1: stat_card("✂️", "Defuses", int(s['total_defuses']), "#00b09b")
+                    with r3c2: stat_card("🎣", "Rounds Last Alive", "?", "#888") # Need to fetch valid aggregate if present
+                    with r3c3: stat_card("💰", "Avg Spent", "?", "#888") # Need valid agg
                     
                     st.divider()
                     st.subheader("Match History (Colored W/L)")
