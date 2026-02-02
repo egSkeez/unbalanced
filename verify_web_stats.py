@@ -1,8 +1,6 @@
 
 import sys
-import pandas as pd
 from cybershoke import get_lobby_player_stats
-from match_registry import get_all_matches
 
 def check_web_stats(match_id):
     print(f"Checking web stats for {match_id}...")

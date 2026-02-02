@@ -121,27 +121,46 @@ def clear_lobby_link():
 
 def get_lobby_player_stats(lobby_id):
     """
-    Fetches the Cybershoke match page and attempts to parse player stats (Kills).
-    Returns a dict {player_name: kills} or None if failed.
+    Fetches the Cybershoke lobby info and returns a dict {player_name: kills}.
     """
-    url = f"https://cybershoke.net/match/{lobby_id}"
+    # Use the internal API that returns the lobby data including stats
+    url = "https://api.cybershoke.net/api/v1/custom-matches/lobbys/info"
+    
     try:
-        # Use Skeez headers
-        resp = requests.get(url, headers=get_headers("Skeez"), timeout=10)
+        payload = {"id_lobby": lobby_id}
+        # Use Skeez headers (cookie required)
+        resp = requests.post(url, headers=get_headers("Skeez"), json=payload, timeout=10)
+        
         if resp.status_code != 200:
-            print(f"Web stats fetch failed: {resp.status_code}")
+            print(f"Web stats API failed: {resp.status_code}")
             return None
         
-        html = resp.text
-        player_stats = {}
+        data = resp.json()
+        if data.get("result") != "success":
+            print(f"Web stats API returned error: {data.get('code')}")
+            return None
+            
+        lobby_data = data.get("data", {})
+        players_dict = lobby_data.get("players", {})
         
-        # Heuristic: Search for patterns like 'class="...player-name...">{NAME}</div>' followed by kill count.
-        # Since we don't know the Exact HTML, we will rely on checking for strings if provided by user later.
-        # For now, this function is a placeholder for the logic.
-        
-        # NOTE: If we can obtain the API endpoint specific to match stats, we should use that instead.
-        
-        return player_stats
+        # print(f"DEBUG: Found {len(players_dict)} players")
+        for pid, p_data in players_dict.items():
+            nick = p_data.get("name")
+            # Stats are nested in match_stats -> live -> kills
+            # Sometimes parsing might fail if structure differs
+            try:
+                p_stats = p_data.get("match_stats", {}).get("live", {})
+                kills = p_stats.get("kills")
+                
+                # print(f"DEBUG: {nick} -> {kills}")
+                
+                if nick and kills is not None:
+                    stats[nick] = int(kills)
+            except Exception as e:
+                # print(f"DEBUG Error for {nick}: {e}")
+                continue
+                
+        return stats
         
     except Exception as e:
         print(f"Web stats extraction error: {e}")
