@@ -4,8 +4,95 @@ import json
 import subprocess
 import os
 import sys
+import platform
+import shutil
+import tarfile
+import urllib.request
+import re
 
+def install_go_if_needed(target_version="1.22.0"):
+    """
+    Checks if 'go' is available and is a sufficient version.
+    If not, downloads and installs a local copy of Go.
+    Returns the path to the go executable.
+    """
+    system = platform.system()
+    # Define current directory for installation
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    go_root = os.path.join(base_dir, "go_dist")
+    
+    # Executable naming
+    exe_name = "go.exe" if system == "Windows" else "go"
+    
+    # 1. Check system Go
+    system_go = shutil.which("go")
+    if system_go:
+        try:
+            res = subprocess.run([system_go, "version"], capture_output=True, text=True)
+            # Output example: "go version go1.21.3 linux/amd64"
+            match = re.search(r"go(\d+)\.(\d+)", res.stdout)
+            if match:
+                major, minor = int(match.group(1)), int(match.group(2))
+                # We need at least 1.21 for unsafe.StringData (technically 1.20 but lets be safe)
+                if major > 1 or (major == 1 and minor >= 21):
+                    # print(f"System Go version {major}.{minor} is sufficient.")
+                    return system_go
+        except Exception:
+            pass
+            
+    # 2. Check local Go
+    local_go_bin = os.path.join(go_root, "go", "bin", exe_name)
+    if os.path.exists(local_go_bin):
+        # We assume if it exists, it's the one we downloaded
+        return local_go_bin
+        
+    # 3. Download and Install
+    print(f"Installing Go {target_version} locally...")
+    
+    if system == "Linux":
+        url = f"https://go.dev/dl/go{target_version}.linux-amd64.tar.gz"
+        filename = "go_tar.tar.gz"
+    elif system == "Windows":
+        # Windows typically relies on user install, but we can try zip
+        url = f"https://go.dev/dl/go{target_version}.windows-amd64.zip"
+        filename = "go_zip.zip"
+        # If user is on windows they probably have go, but this handles edge cases
+    else:
+        # Darwin/MacOS not primarily supported for this cloud patch but good to have
+        return "go" 
+
+    try:
+        if not os.path.exists(go_root):
+            os.makedirs(go_root)
+            
+        archive_path = os.path.join(go_root, filename)
+        print(f"Downloading {url}...")
+        urllib.request.urlretrieve(url, archive_path)
+        
+        print("Extracting...")
+        if filename.endswith(".zip"):
+            import zipfile
+            with zipfile.ZipFile(archive_path, 'r') as zip_ref:
+                zip_ref.extractall(go_root)
+        else:
+            with tarfile.open(archive_path, "r:gz") as tar:
+                tar.extractall(path=go_root)
+                
+        # Cleanup
+        os.remove(archive_path)
+        
+        if os.path.exists(local_go_bin):
+            print("Go installed successfully.")
+            return local_go_bin
+            
+    except Exception as e:
+        print(f"Failed to install Go: {e}")
+        
+    return "go" # Fallback to system go command even if it fails later
+    
 def analyze_demo_file(demo_path):
+
+
     """
     Analyzes a .dem file using the external Go parser.
     Returns:
@@ -25,15 +112,30 @@ def analyze_demo_file(demo_path):
     go_binary = os.path.join(go_dir, binary_name)
     go_source = os.path.join(go_dir, "main.go")
     
+    # Ensure Go is installed
+    go_exe_path = install_go_if_needed()
+    
     # Check if binary exists, if not, try to build it
     if not os.path.exists(go_binary):
         print(f"Parser binary not found at {go_binary}. Attempting to build from source...")
         if os.path.exists(go_source):
             try:
                 # Build command: go build -o parser.exe main.go
-                build_cmd = ["go", "build", "-o", binary_name, "main.go"]
+                # Important: Use the specific go executable we found/installed
+                build_cmd = [go_exe_path, "build", "-o", binary_name, "main.go"]
                 print(f"Running build: {' '.join(build_cmd)}")
-                build_res = subprocess.run(build_cmd, cwd=go_dir, capture_output=True, text=True)
+                
+                # Setup environment variables to include the new go bin in path if needed
+                env = os.environ.copy()
+                if "go_dist" in go_exe_path:
+                   # Attempt to set GOROOT/PATH if we are using local go
+                   # Assuming go_exe_path is .../go/bin/go
+                   go_bin_dir = os.path.dirname(go_exe_path)
+                   go_home_dir = os.path.dirname(go_bin_dir) # .../go
+                   env["GOROOT"] = go_home_dir
+                   env["PATH"] = go_bin_dir + os.pathsep + env.get("PATH", "")
+                
+                build_res = subprocess.run(build_cmd, cwd=go_dir, capture_output=True, text=True, env=env)
                 
                 if build_res.returncode == 0:
                     print("Build successful.")
