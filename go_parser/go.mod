@@ -1,6 +1,6 @@
 module go_parser
 
-go 1.25.6
+go 1.21
 
 require github.com/markus-wa/demoinfocs-golang/v4 v4.5.1
 
