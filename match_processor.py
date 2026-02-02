@@ -4,6 +4,7 @@ from match_registry import get_pending_matches, update_match_status
 from demo_download import download_demo
 from demo_analysis import analyze_demo_file
 from match_stats_db import save_match_stats
+from cybershoke import get_lobby_player_stats
 
 def process_match_queue(admin_name="Skeez"):
     """
@@ -52,6 +53,34 @@ def process_match_queue(admin_name="Skeez"):
             
             if stats_res is None:
                 raise Exception(f"Analysis failed: {score_res}")
+
+            # --- DOUBLE CHECK WITH WEB STATS ---
+            try:
+                print(f"Verifying stats for match {match_id} against web...")
+                web_stats = get_lobby_player_stats(match_id)
+                if web_stats:
+                    # Basic consistency check on Kill counts
+                    mismatches = []
+                    for _, row in stats_res.iterrows():
+                        p_name = row['Player']
+                        p_kills = row['Kills']
+                        if p_name in web_stats:
+                            web_kills = web_stats[p_name]
+                            # Allow slight deviation? specific rules? strict for now.
+                            if p_kills != web_kills:
+                                mismatches.append(f"{p_name}: Demo={p_kills}, Web={web_kills}")
+                    
+                    if mismatches:
+                        warn_msg = f"⚠️ Stats Mismatch for {match_id}: " + ", ".join(mismatches)
+                        print(warn_msg)
+                        results_log.append(warn_msg)
+                    else:
+                        print("✅ Web stats verification passed.")
+                else:
+                    print("⚠️ Could not fetch web stats for verification.")
+            except Exception as e:
+                print(f"Stats verification failed: {e}")
+            # -----------------------------------
             
             # 4. Save to Database
             # We construct a unique match_id for the stats table, usually 'match_ID'

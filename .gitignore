@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
-*.db
+# *.db
+!cs2_history.db
 *.exe
 *.dem
 go_dist/

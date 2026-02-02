@@ -2,6 +2,7 @@
 import requests
 import sqlite3
 import json
+import re
 
 # --- COOKIE REPOSITORY ---
 COOKIES = {
@@ -117,3 +118,31 @@ def clear_lobby_link():
         pass
     finally:
         conn.close()
+
+def get_lobby_player_stats(lobby_id):
+    """
+    Fetches the Cybershoke match page and attempts to parse player stats (Kills).
+    Returns a dict {player_name: kills} or None if failed.
+    """
+    url = f"https://cybershoke.net/match/{lobby_id}"
+    try:
+        # Use Skeez headers
+        resp = requests.get(url, headers=get_headers("Skeez"), timeout=10)
+        if resp.status_code != 200:
+            print(f"Web stats fetch failed: {resp.status_code}")
+            return None
+        
+        html = resp.text
+        player_stats = {}
+        
+        # Heuristic: Search for patterns like 'class="...player-name...">{NAME}</div>' followed by kill count.
+        # Since we don't know the Exact HTML, we will rely on checking for strings if provided by user later.
+        # For now, this function is a placeholder for the logic.
+        
+        # NOTE: If we can obtain the API endpoint specific to match stats, we should use that instead.
+        
+        return player_stats
+        
+    except Exception as e:
+        print(f"Web stats extraction error: {e}")
+        return None
