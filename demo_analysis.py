@@ -155,22 +155,35 @@ def analyze_demo_file(demo_path):
     try:
         # Run Go parser
         print(f"Running Go parser on: {demo_path}")
-        result = subprocess.run([go_binary, demo_path], capture_output=True, text=True, encoding='utf-8')
         
-        if result.returncode != 0:
-            print(f"Go parser error: {result.stderr}")
-            return f"Parser Error: {result.stderr}", None, "Unknown", 0, 0
-            
-        # Parse JSON output
+        # Use a temporary file for output to avoid memory issues with large stdout
+        import uuid
+        temp_out_file = f"parser_out_{uuid.uuid4()}.json"
+        
         try:
-            data = json.loads(result.stdout)
-        except json.JSONDecodeError:
-            print(f"Failed to decode JSON: {result.stdout}")
-            return "JSON Error", None, "Unknown", 0, 0
+            with open(temp_out_file, "wb") as outfile:
+                result = subprocess.run([go_binary, demo_path], stdout=outfile, stderr=subprocess.PIPE, text=True, encoding='utf-8')
             
-        if data.get("error"):
-            print(f"Parser reported error: {data['error']}")
-            return f"Error: {data['error']}", None, "Unknown", 0, 0
+            if result.returncode != 0:
+                print(f"Go parser error: {result.stderr}")
+                return f"Parser Error: {result.stderr}", None, "Unknown", 0, 0
+                
+            # Parse JSON output from file
+            try:
+                with open(temp_out_file, "r", encoding="utf-8") as infile:
+                    data = json.load(infile)
+            except json.JSONDecodeError:
+                print(f"Failed to decode JSON from {temp_out_file}")
+                # debug: print file content if small?
+                return "JSON Error", None, "Unknown", 0, 0
+                
+            if data.get("error"):
+                print(f"Parser reported error: {data['error']}")
+                return f"Error: {data['error']}", None, "Unknown", 0, 0
+                
+        finally:
+            if os.path.exists(temp_out_file):
+                os.remove(temp_out_file)
 
         # Extract basic info
         score_str = data.get("score_str", "Unknown")

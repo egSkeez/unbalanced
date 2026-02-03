@@ -7,6 +7,9 @@ import (
 	"sort"
 	"strings"
 
+	"io"
+	"log"
+
 	demoinfocs "github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs"
 	"github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs/common"
 	"github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs/events"
@@ -51,6 +54,9 @@ type MatchResult struct {
 }
 
 func main() {
+	// Silence default logger
+	log.SetOutput(io.Discard)
+
 	if len(os.Args) < 2 {
 		fmt.Println("Usage: go_parser <demo_file>")
 		os.Exit(1)
