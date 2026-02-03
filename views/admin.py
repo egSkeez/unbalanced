@@ -267,43 +267,119 @@ def render_admin_tab():
             
             manual_url = st.text_input("Manual Demo URL (Optional - if auto fails)", help="Right click 'Download Demo' on Cybershoke and paste link here")
             
-            if st.button("⬇️ Download & Analyze"):
-                with st.spinner("Processing... This may take a minute..."):
-                    # 1. Download
-                    target_url = manual_url if manual_url.strip() else None
-                    success, msg = download_demo(demo_mid, st.session_state.admin_user, direct_url=target_url)
-                    
-                    if success:
-                        st.success(msg)
-                        # 2. Automatically Analyze
-                        st.info("Parsing match statistics...")
-                        expected_filename = f"demos/match_{demo_mid}.dem"
-                        if os.path.exists(expected_filename):
-                            try:
-                                score_res, stats_res, map_name, score_t, score_ct = analyze_demo_file(expected_filename)
-                                if stats_res is not None:
-                                    # Save to database
-                                    match_id = f"match_{demo_mid}"
-                                    save_match_stats(match_id, demo_mid, score_res, stats_res, map_name, score_t, score_ct)
+            col_d1, col_d2, col_d3 = st.columns(3)
+            
+            with col_d1:
+                if st.button("🌐 Web Analysis via Lobby URL", use_container_width=True):
+                    with st.spinner("Fetching stats from Cybershoke Web..."):
+                        from cybershoke import get_lobby_player_stats
+                        web_stats = get_lobby_player_stats(demo_mid)
+                        
+                        if web_stats:
+                            # Create a simple DataFrame from the web stats
+                            # Attempt to get map name from web if possible (not currently returned but can default)
+                            # web_stats is dict {name: kills} currently.
+                            # We'll need to fake the other columns or leave them empty
+                            
+                            w_data = []
+                            for p, k in web_stats.items():
+                                w_data.append({
+                                    "Player": p, "Kills": k, "Deaths": 0, "Assists": 0, "K/D": 0.0, 
+                                    "Score": k*2, "HS%": 0, "ADR": 0
+                                })
+                            
+                            import pandas as pd
+                            res_df = pd.DataFrame(w_data).sort_values("Kills", ascending=False)
+                            
+                            # Save simple stats
+                            match_id = f"match_{demo_mid}"
+                            save_match_stats(match_id, demo_mid, "Result from Web", res_df, "Unknown Map", 0, 0)
+                            
+                            st.success("Fetched stats from Web!")
+                            st.session_state['last_stats_score'] = "Web Result"
+                            st.session_state['last_stats_df'] = res_df
+                            st.session_state['last_stats_map'] = "Unknown (Web)"
+                            st.rerun()
+                        else:
+                            st.error("Could not fetch web stats. Check ID or Cookies.")
+
+            with col_d2:
+                if st.button("🎥 Demo Analysis (File Only)", use_container_width=True):
+                    with st.spinner("Downloading & Analyzing Demo..."):
+                        # Logic: Download -> Analyze -> Save (No Verification)
+                        target_url = manual_url if manual_url.strip() else None
+                        success, msg = download_demo(demo_mid, st.session_state.admin_user, direct_url=target_url)
+                        
+                        if success:
+                            expected_filename = f"demos/match_{demo_mid}.dem"
+                            if os.path.exists(expected_filename):
+                                try:
+                                    score_res, stats_res, map_name, score_t, score_ct = analyze_demo_file(expected_filename)
+                                    if stats_res is not None:
+                                        match_id = f"match_{demo_mid}"
+                                        save_match_stats(match_id, demo_mid, score_res, stats_res, map_name, score_t, score_ct)
+                                        
+                                        st.success("Analyzed Demo Successfully!")
+                                        st.session_state['last_stats_score'] = score_res
+                                        st.session_state['last_stats_df'] = stats_res
+                                        st.session_state['last_stats_map'] = map_name
+                                        st.rerun()
+                                    else:
+                                        st.error(f"Analysis failed: {score_res}")
+                                finally:
+                                    if os.path.exists(expected_filename):
+                                        os.remove(expected_filename)
+                        else:
+                            st.error(msg)
+            
+            with col_d3:
+                if st.button("⚡ Full Analysis (Web + Demo)", type="primary", use_container_width=True):
+                    with st.spinner("Running Full Analysis & Verification..."):
+                         # Logic: Download -> Analyze -> Verify/Correct with Web -> Save
+                        target_url = manual_url if manual_url.strip() else None
+                        dl_success, dl_msg = download_demo(demo_mid, st.session_state.admin_user, direct_url=target_url)
+                        
+                        if dl_success:
+                            expected_filename = f"demos/match_{demo_mid}.dem"
+                            if os.path.exists(expected_filename):
+                                try:
+                                    # 1. Analyze
+                                    score_res, stats_res, map_name, score_t, score_ct = analyze_demo_file(expected_filename)
                                     
-                                    # Display match header
-                                    st.subheader(f"📍 {map_name} | {score_res}")
-                                    st.dataframe(stats_res, use_container_width=True, hide_index=True)
-                                    st.success("✅ Statistics saved to database!")
-                                    
-                                    # Store in session state to persist
-                                    st.session_state['last_stats_score'] = score_res
-                                    st.session_state['last_stats_df'] = stats_res
-                                    st.session_state['last_stats_map'] = map_name
-                                else:
-                                    st.error(f"Analysis failed: {score_res}")
-                            finally:
-                                # Cleanup demo file
-                                if os.path.exists(expected_filename):
-                                    os.remove(expected_filename)
-                                    st.toast(f"Deleted temporary demo file: {expected_filename}")
-                    else:
-                        st.error(msg)
+                                    if stats_res is not None:
+                                        # 2. Verify with Web
+                                        from cybershoke import get_lobby_player_stats
+                                        web_stats = get_lobby_player_stats(demo_mid)
+                                        if web_stats:
+                                            mismatches = []
+                                            for index, row in stats_res.iterrows():
+                                                p_name = row['Player']
+                                                if p_name in web_stats:
+                                                    web_kills = web_stats[p_name]
+                                                    demo_kills = row['Kills']
+                                                    if demo_kills != web_kills:
+                                                        mismatches.append(f"{p_name}: {demo_kills}->{web_kills}")
+                                                        stats_res.at[index, 'Kills'] = web_kills
+                                            
+                                            if mismatches:
+                                                st.warning("⚠️ Corrected: " + ", ".join(mismatches))
+                                        
+                                        # 3. Save
+                                        match_id = f"match_{demo_mid}"
+                                        save_match_stats(match_id, demo_mid, score_res, stats_res, map_name, score_t, score_ct)
+                                        
+                                        st.success("✅ Full Analysis Complete!")
+                                        st.session_state['last_stats_score'] = score_res
+                                        st.session_state['last_stats_df'] = stats_res
+                                        st.session_state['last_stats_map'] = map_name
+                                        st.rerun()
+                                    else:
+                                        st.error(f"Analysis failed: {score_res}")
+                                finally:
+                                     if os.path.exists(expected_filename):
+                                        os.remove(expected_filename)
+                        else:
+                            st.error(dl_msg)
             
             # Persist display if available
             if 'last_stats_df' in st.session_state:
