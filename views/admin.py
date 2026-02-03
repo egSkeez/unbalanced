@@ -353,7 +353,7 @@ def render_admin_tab():
             with col_d3:
                 if st.button("⚡ Full Analysis (Web + Demo)", type="primary", use_container_width=True):
                     with st.spinner("Running Full Analysis & Verification..."):
-                         # Logic: Download -> Analyze -> Verify/Correct with Web -> Save
+                         # Logic: Download -> Analyze -> Overwrite Key Stats with Web -> Save
                         target_url = manual_url if manual_url.strip() else None
                         dl_success, dl_msg = download_demo(demo_mid, st.session_state.admin_user, direct_url=target_url)
                         
@@ -361,42 +361,56 @@ def render_admin_tab():
                             expected_filename = f"demos/match_{demo_mid}.dem"
                             if os.path.exists(expected_filename):
                                 try:
-                                    # 1. Analyze
+                                    # 1. Analyze Demo (for ADR, Utility, Entry, etc.)
                                     score_res, stats_res, map_name, score_t, score_ct = analyze_demo_file(expected_filename)
                                     
                                     if stats_res is not None:
-                                        # 2. Verify with Web
+                                        # 2. Fetch Web Stats (Source of Truth for K/D/A/HS/Score)
                                         from cybershoke import get_lobby_player_stats
                                         web_stats, w_score, w_map = get_lobby_player_stats(demo_mid)
+                                        
+                                        overWrittenCount = 0
                                         if web_stats:
-                                            mismatches = []
+                                            # Prioritize Web Score/Map
+                                            if w_score and w_score != "Unknown":
+                                                score_res = w_score
+                                                try:
+                                                    score_t = int(w_score.split("-")[0].strip())
+                                                    score_ct = int(w_score.split("-")[1].strip())
+                                                except:
+                                                    pass
+                                            if w_map and w_map != "Unknown":
+                                                map_name = w_map
+
+                                            # Overwrite Stats
                                             for index, row in stats_res.iterrows():
                                                 p_name = row['Player']
                                                 if p_name in web_stats:
                                                     w_det = web_stats[p_name]
                                                     
-                                                    # Verify Kills
-                                                    if row['Kills'] != w_det['kills']:
-                                                        mismatches.append(f"{p_name} Kills: {row['Kills']}->{w_det['kills']}")
-                                                        stats_res.at[index, 'Kills'] = w_det['kills']
-                                                        
-                                                    # Verify Deaths (Optional, sometimes demo tracks suicide differently)
-                                                    if row['Deaths'] != w_det['deaths']:
-                                                        # mismatches.append(f"{p_name} Deaths: {row['Deaths']}->{w_det['deaths']}")
-                                                        stats_res.at[index, 'Deaths'] = w_det['deaths']
+                                                    # Force values from Web
+                                                    stats_res.at[index, 'Kills'] = w_det['kills']
+                                                    stats_res.at[index, 'Deaths'] = w_det['deaths']
+                                                    stats_res.at[index, 'Assists'] = w_det['assists']
+                                                    stats_res.at[index, 'Headshots'] = w_det['headshots']
+                                                    
+                                                    # Recalculate derived
+                                                    new_k = w_det['kills']
+                                                    new_d = w_det['deaths']
+                                                    new_hs = w_det['headshots']
+                                                    
+                                                    stats_res.at[index, 'K/D'] = round(new_k / new_d, 2) if new_d > 0 else new_k
+                                                    stats_res.at[index, 'HS%'] = round((new_hs / new_k * 100), 1) if new_k > 0 else 0
+                                                    
+                                                    overWrittenCount += 1
                                             
-                                            if mismatches:
-                                                st.warning("⚠️ Corrected: " + ", ".join(mismatches))
-                                            
-                                            # Prefer Web Score/Map if available and different?
-                                            if w_map != "Unknown" and w_map != map_name:
-                                                 map_name = w_map
-                                                 
+                                            st.toast(f"Updated stats for {overWrittenCount} players using Web Data")
+                                        
                                         # 3. Save
                                         match_id = f"match_{demo_mid}"
                                         save_match_stats(match_id, demo_mid, score_res, stats_res, map_name, score_t, score_ct)
                                         
-                                        st.success("✅ Full Analysis Complete!")
+                                        st.success("✅ Full Analysis Complete (Web Data Prioritized)!")
                                         st.session_state['last_stats_score'] = score_res
                                         st.session_state['last_stats_df'] = stats_res
                                         st.session_state['last_stats_map'] = map_name
