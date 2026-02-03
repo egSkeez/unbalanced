@@ -273,32 +273,50 @@ def render_admin_tab():
                 if st.button("🌐 Web Analysis via Lobby URL", use_container_width=True):
                     with st.spinner("Fetching stats from Cybershoke Web..."):
                         from cybershoke import get_lobby_player_stats
-                        web_stats = get_lobby_player_stats(demo_mid)
+                        web_stats, web_score, web_map = get_lobby_player_stats(demo_mid)
                         
                         if web_stats:
-                            # Create a simple DataFrame from the web stats
-                            # Attempt to get map name from web if possible (not currently returned but can default)
-                            # web_stats is dict {name: kills} currently.
-                            # We'll need to fake the other columns or leave them empty
-                            
+                            # Create a rich DataFrame from the web stats
                             w_data = []
-                            for p, k in web_stats.items():
+                            for p, details in web_stats.items():
+                                k = details['kills']
+                                d = details['deaths']
+                                a = details['assists']
+                                hs = details['headshots']
+                                
+                                kd = k / d if d > 0 else k
+                                hs_p = (hs / k * 100) if k > 0 else 0
+                                score_val = k*2 + a # Simple scoring
+                                
                                 w_data.append({
-                                    "Player": p, "Kills": k, "Deaths": 0, "Assists": 0, "K/D": 0.0, 
-                                    "Score": k*2, "HS%": 0, "ADR": 0
+                                    "Player": p, 
+                                    "Kills": k, 
+                                    "Deaths": d, 
+                                    "Assists": a, 
+                                    "K/D": round(kd, 2), 
+                                    "Score": score_val, 
+                                    "HS%": round(hs_p, 1), 
+                                    "ADR": 0 # Not available from web
                                 })
                             
                             import pandas as pd
-                            res_df = pd.DataFrame(w_data).sort_values("Kills", ascending=False)
+                            res_df = pd.DataFrame(w_data).sort_values("Score", ascending=False)
                             
                             # Save simple stats
                             match_id = f"match_{demo_mid}"
-                            save_match_stats(match_id, demo_mid, "Result from Web", res_df, "Unknown Map", 0, 0)
+                            # We can use the web_score (e.g. 13 - 5) for storage
+                            try:
+                                t_s = int(web_score.split("-")[0].strip())
+                                ct_s = int(web_score.split("-")[1].strip())
+                            except:
+                                t_s, ct_s = 0, 0
+                                
+                            save_match_stats(match_id, demo_mid, web_score, res_df, web_map, t_s, ct_s)
                             
-                            st.success("Fetched stats from Web!")
-                            st.session_state['last_stats_score'] = "Web Result"
+                            st.success(f"Fetched stats from Web! ({web_score})")
+                            st.session_state['last_stats_score'] = web_score
                             st.session_state['last_stats_df'] = res_df
-                            st.session_state['last_stats_map'] = "Unknown (Web)"
+                            st.session_state['last_stats_map'] = web_map
                             st.rerun()
                         else:
                             st.error("Could not fetch web stats. Check ID or Cookies.")
@@ -349,21 +367,31 @@ def render_admin_tab():
                                     if stats_res is not None:
                                         # 2. Verify with Web
                                         from cybershoke import get_lobby_player_stats
-                                        web_stats = get_lobby_player_stats(demo_mid)
+                                        web_stats, w_score, w_map = get_lobby_player_stats(demo_mid)
                                         if web_stats:
                                             mismatches = []
                                             for index, row in stats_res.iterrows():
                                                 p_name = row['Player']
                                                 if p_name in web_stats:
-                                                    web_kills = web_stats[p_name]
-                                                    demo_kills = row['Kills']
-                                                    if demo_kills != web_kills:
-                                                        mismatches.append(f"{p_name}: {demo_kills}->{web_kills}")
-                                                        stats_res.at[index, 'Kills'] = web_kills
+                                                    w_det = web_stats[p_name]
+                                                    
+                                                    # Verify Kills
+                                                    if row['Kills'] != w_det['kills']:
+                                                        mismatches.append(f"{p_name} Kills: {row['Kills']}->{w_det['kills']}")
+                                                        stats_res.at[index, 'Kills'] = w_det['kills']
+                                                        
+                                                    # Verify Deaths (Optional, sometimes demo tracks suicide differently)
+                                                    if row['Deaths'] != w_det['deaths']:
+                                                        # mismatches.append(f"{p_name} Deaths: {row['Deaths']}->{w_det['deaths']}")
+                                                        stats_res.at[index, 'Deaths'] = w_det['deaths']
                                             
                                             if mismatches:
                                                 st.warning("⚠️ Corrected: " + ", ".join(mismatches))
-                                        
+                                            
+                                            # Prefer Web Score/Map if available and different?
+                                            if w_map != "Unknown" and w_map != map_name:
+                                                 map_name = w_map
+                                                 
                                         # 3. Save
                                         match_id = f"match_{demo_mid}"
                                         save_match_stats(match_id, demo_mid, score_res, stats_res, map_name, score_t, score_ct)

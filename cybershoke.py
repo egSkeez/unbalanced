@@ -121,7 +121,11 @@ def clear_lobby_link():
 
 def get_lobby_player_stats(lobby_id):
     """
-    Fetches the Cybershoke lobby info and returns a dict {player_name: kills}.
+    Fetches the Cybershoke lobby info and returns detailed stats.
+    Returns:
+       - stats_dict: {player_name: {kills, deaths, assists, headshots}}
+       - score_str: "T X - Y CT" (estimated)
+       - map_name: "de_mapname"
     """
     # Use the internal API that returns the lobby data including stats
     url = "https://api.cybershoke.net/api/v1/custom-matches/lobbys/info"
@@ -133,14 +137,27 @@ def get_lobby_player_stats(lobby_id):
         
         if resp.status_code != 200:
             print(f"Web stats API failed: {resp.status_code}")
-            return None
+            return None, "Unknown", "Unknown"
         
         data = resp.json()
         if data.get("result") != "success":
             print(f"Web stats API returned error: {data.get('code')}")
-            return None
+            return None, "Unknown", "Unknown"
             
         lobby_data = data.get("data", {})
+        
+        # Extract Match Info
+        match_settings = lobby_data.get("match_settings", {})
+        map_name = match_settings.get("map_name", "Unknown")
+        
+        # Extract Score if available
+        # Structure seems to be match_stats -> base -> team_2/3 -> score
+        # Note: Team numbering might vary. Usually team_2 and team_3 in the dump.
+        match_stats_base = lobby_data.get("match_stats", {}).get("base", {})
+        score_t = match_stats_base.get("team_2", {}).get("score", 0)
+        score_ct = match_stats_base.get("team_3", {}).get("score", 0)
+        score_str = f"{score_t} - {score_ct}" # We don't know who is T/CT easily without more info, just returning raw
+        
         players_dict = lobby_data.get("players", {})
         
         stats = {}
@@ -148,21 +165,26 @@ def get_lobby_player_stats(lobby_id):
         for pid, p_data in players_dict.items():
             nick = p_data.get("name")
             # Stats are nested in match_stats -> live -> kills
-            # Sometimes parsing might fail if structure differs
             try:
                 p_stats = p_data.get("match_stats", {}).get("live", {})
-                kills = p_stats.get("kills")
+                kills = p_stats.get("kills", 0)
+                deaths = p_stats.get("deaths", 0)
+                assists = p_stats.get("assists", 0)
+                headshots = p_stats.get("headshots", 0)
                 
-                # print(f"DEBUG: {nick} -> {kills}")
-                
-                if nick and kills is not None:
-                    stats[nick] = int(kills)
+                if nick:
+                    stats[nick] = {
+                        "kills": int(kills),
+                        "deaths": int(deaths),
+                        "assists": int(assists),
+                        "headshots": int(headshots)
+                    }
             except Exception as e:
                 # print(f"DEBUG Error for {nick}: {e}")
                 continue
                 
-        return stats
+        return stats, score_str, map_name
         
     except Exception as e:
         print(f"Web stats extraction error: {e}")
-        return None
+        return None, "Unknown", "Unknown"
