@@ -69,8 +69,31 @@ def init_db():
                   (name, d['elo'], d['aim'], d['util'], d['team'], "cs2pro"))
     
     c.execute("UPDATE players SET secret_word = lower(name) WHERE secret_word IS NULL OR secret_word = ''")
+
+    # ADDED: settings table
+    c.execute('''CREATE TABLE IF NOT EXISTS settings 
+                 (key TEXT PRIMARY KEY, value TEXT)''')
     conn.commit()
     conn.close()
+
+# --- SETTINGS FUNCTIONS ---
+def get_roommates():
+    conn = sqlite3.connect('cs2_history.db')
+    c = conn.cursor()
+    c.execute("SELECT value FROM settings WHERE key = 'roommates'")
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return json.loads(row[0])
+    return []
+
+def set_roommates(players_list):
+    conn = sqlite3.connect('cs2_history.db')
+    val = json.dumps(players_list)
+    conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('roommates', ?)", (val,))
+    conn.commit()
+    conn.close()
+
 
 # --- DRAFT STATE FUNCTIONS ---
 def save_draft_state(t1, t2, name_a, name_b, avg1, avg2, mode="balanced"):

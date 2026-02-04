@@ -9,13 +9,13 @@ import base64
 from constants import TEAM_NAMES, MAP_POOL, MAP_LOGOS, SKEEZ_TITLES
 from database import (save_draft_state, load_draft_state, clear_draft_state, 
                       update_draft_map, update_elo, get_vote_status, set_draft_pins,
-                      init_veto_state, get_veto_state)
+                      init_veto_state, get_veto_state, get_roommates)
 from logic import get_best_combinations, pick_captains, cycle_new_captain
 from cybershoke import create_cybershoke_lobby_api, set_lobby_link, get_lobby_link, clear_lobby_link
 from discord_bot import send_full_match_info # <--- Manual Broadcast Function
 from utils import generate_qr, get_local_ip
 
-ROOMMATES = ["jardin public", "magon"]
+# ROOMMATES config is now dynamic via get_roommates()
 QR_BASE_URL = "https://unbalanced-wac3gydqklzbeeuomp6adp.streamlit.app/"
 SOUNDS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "sounds")
 
@@ -267,7 +267,8 @@ def render_mixer_tab(player_df):
                     sorted_by_metric = sorted(selected, key=lambda x: current_score_map.get(x, 0), reverse=True)
                     dynamic_top_2 = [sorted_by_metric[0], sorted_by_metric[1]]
 
-                    all_combos = get_best_combinations(selected, force_split=dynamic_top_2, force_together=ROOMMATES, metric=metric)
+                    roommates = get_roommates()
+                    all_combos = get_best_combinations(selected, force_split=dynamic_top_2, force_together=roommates, metric=metric)
                     ridx = 0 if mode in ["balanced", "kd_balanced"] else random.randint(1, min(50, len(all_combos) - 1))
                     t1, t2, a1, a2, gap = all_combos[ridx]
                     n_a, n_b = random.sample(TEAM_NAMES, 2)

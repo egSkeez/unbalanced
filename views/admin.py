@@ -2,7 +2,7 @@
 import streamlit as st
 import sqlite3
 import time
-from database import get_player_stats, clear_draft_state, load_draft_state
+from database import get_player_stats, clear_draft_state, load_draft_state, get_roommates, set_roommates
 from cybershoke import get_lobby_link, set_lobby_link, clear_lobby_link, create_cybershoke_lobby_api
 from discord_bot import send_full_match_info, send_lobby_to_discord
 from demo_download import download_demo
@@ -112,6 +112,33 @@ def render_admin_tab():
                         st.success("Sent full match info to Discord!")
                     else:
                         st.error("No active draft found in database!")
+
+            st.markdown("---")
+            st.subheader("👯 Roommates (Force Together)")
+            
+            current_roommates = get_roommates()
+            # We need to get just potential names, might as well fetch fresh
+            try:
+                p_stats = get_player_stats()
+                all_players_list = p_stats['name'].tolist()
+            except:
+                all_players_list = []
+            
+            # Filter current_roommates to ensure they exist in current roster
+            valid_defaults = [p for p in current_roommates if p in all_players_list]
+            
+            new_roommates = st.multiselect(
+                "Select players who MUST be on the same team:",
+                options=all_players_list,
+                default=valid_defaults
+            )
+            
+            if st.button("💾 Save Roommates"):
+                set_roommates(new_roommates)
+                st.success(f"Roommates updated: {', '.join(new_roommates)}")
+                time.sleep(1)
+                st.rerun()
+
 
         # --- Tab 1.5: Lobby History ---
         with tab_history_admin:

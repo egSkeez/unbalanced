@@ -110,20 +110,25 @@ func main() {
 	var roundKills map[uint64]int
 	var firstKillOccurred bool
 
+	// Clutch Tracking State
+	var potentialClutcher *common.Player
+	var clutchOpponents int // opponent count when situation started
+
 	// Init round data
 	p.RegisterEventHandler(func(e events.RoundStart) {
 		roundKills = make(map[uint64]int)
 		firstKillOccurred = false
+		potentialClutcher = nil
+		clutchOpponents = 0
 	})
 
-	// Init for first round
-	roundKills = make(map[uint64]int)
-
-	// Basic Handlers
+	// Track Deaths for Clutch Logic
 	p.RegisterEventHandler(func(e events.Kill) {
 		if !p.GameState().IsMatchStarted() {
 			return
 		}
+
+		// Existing Kill Logic
 		kStats := getStats(e.Killer)
 		vStats := getStats(e.Victim)
 		aStats := getStats(e.Assister)
@@ -158,6 +163,53 @@ func main() {
 			aStats.Assists++
 			if e.AssistedFlash {
 				aStats.FlashAssists++
+			}
+		}
+
+		// --- CLUTCH LOGIC ---
+		// Check the victim's team. If they dropped to 1 alive, that last guy is now clutching.
+		// Important: This logic triggers only on the timestamp the death happened.
+		// It doesn't handle if multiple people disconnect, but for demos it's fine.
+
+		victimTeam := e.Victim.Team
+		// Get alive members of that team AFTER this death
+		// The event happens before the state update fully propagates in some parsers,
+		// but usually IsAlive() on the victim is still true?
+		// Actually best to count manually or iterate participants
+
+		teamMembers := p.GameState().Team(victimTeam).Members()
+		aliveCount := 0
+		var lastSurvivor *common.Player
+
+		for _, m := range teamMembers {
+			// e.Victim is the one dying, so ignore him even if currently marked alive
+			if m.IsAlive() && m.SteamID64 != e.Victim.SteamID64 {
+				aliveCount++
+				lastSurvivor = m
+			}
+		}
+
+		if aliveCount == 1 && lastSurvivor != nil {
+			// A clutch situation has begun for lastSurvivor
+			potentialClutcher = lastSurvivor
+
+			// Count enemies
+			enemyTeam := common.TeamCounterTerrorists
+			if victimTeam == common.TeamCounterTerrorists {
+				enemyTeam = common.TeamTerrorists
+			}
+
+			enemies := 0
+			for _, m := range p.GameState().Team(enemyTeam).Members() {
+				if m.IsAlive() {
+					enemies++
+				}
+			}
+			clutchOpponents = enemies
+		} else if aliveCount == 0 {
+			// Team wiped, clutch failed if it was pending for this team
+			if potentialClutcher != nil && potentialClutcher.Team == victimTeam {
+				potentialClutcher = nil // Failed
 			}
 		}
 	})
@@ -235,9 +287,18 @@ func main() {
 			}
 		}
 
-		// Logic to determine Clutches would go here, requires tracking alive players per tick or snapshotting at death
-		// Simplified Clutch Logic: Winner survives alone against X enemies
-		// This is complex to do accurately without tick-state, skipping precise clutch for now or infer at end of round
+		// Process Clutch
+		// If we hava a potential clutcher AND his team won
+		if potentialClutcher != nil && potentialClutcher.Team == e.Winner {
+			// Validate: Clutches are usually 1v1, 1v2 etc.
+			// If clutchOpponents >= 1, it's a clutch
+			if clutchOpponents >= 1 {
+				s := getStats(potentialClutcher)
+				if s != nil {
+					s.ClutchWins++
+				}
+			}
+		}
 	})
 
 	// Parse to end

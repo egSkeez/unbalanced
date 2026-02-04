@@ -1,7 +1,7 @@
 # app.py
 import streamlit as st
 import random
-from database import init_db, get_player_stats, save_draft_state, load_draft_state, clear_draft_state
+from database import init_db, get_player_stats, save_draft_state, load_draft_state, clear_draft_state, get_roommates
 from cybershoke import init_cybershoke_db
 from logic import get_best_combinations
 from utils import render_custom_css
@@ -15,7 +15,7 @@ from views.stats import render_stats_tab
 from views.trophies import render_trophies_tab
 
 # --- MAIN ENTRY POINT ---
-ROOMMATES = ["jardin public", "magon"]
+# ROOMMATES config is now dynamic via get_roommates()
 
 if "vote_token" in st.query_params:
     render_mobile_vote_page(st.query_params["vote_token"])
@@ -63,7 +63,8 @@ if st.session_state.get("trigger_reroll", False):
         force_captains = list(st.session_state.draft_pins.keys())
 
     metric = "avg_kd" if st.session_state.get("draft_mode") == "kd_balanced" else "overall"
-    all_combos = get_best_combinations(current_players, force_split=force_captains, force_together=ROOMMATES, metric=metric)
+    roommates = get_roommates()
+    all_combos = get_best_combinations(current_players, force_split=force_captains, force_together=roommates, metric=metric)
     ridx = random.randint(1, min(50, len(all_combos) - 1))
     nt1, nt2, na1, na2, ngap = all_combos[ridx]
     save_draft_state(nt1, nt2, st.session_state.assigned_names[0], st.session_state.assigned_names[1], na1, na2, mode=st.session_state.get("draft_mode", "balanced"))
