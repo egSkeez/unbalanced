@@ -33,15 +33,36 @@ def get_best_combinations(selected_players, force_split=None, force_together=Non
             if (p1 in team1 and p2 in team1) or (p1 in team2 and p2 in team2):
                 continue
 
-        # 2. Force Together Check (e.g. Chajra & Ghoufa)
-        if force_together and len(force_together) >= 2:
-            # Check if the "together" group is split between t1 and t2
-            # We check if some are in t1 and some are in t2
-            in_t1 = any(p in team1 for p in force_together)
-            in_t2 = any(p in team2 for p in force_together)
+        # 2. Force Together Check (e.g. Chajra & Ghoufa -> Must be on same team)
+        if force_together:
+            # Normalize to list of lists if single list of strings provided
+            groups = []
+            if isinstance(force_together[0], list):
+                groups = force_together
+            else:
+                groups = [force_together]
             
-            # If present in both teams, it means they were split -> Invalid
-            if in_t1 and in_t2:
+            is_split = False
+            for group in groups:
+                 if len(group) < 2: continue
+                 
+                 # Check if this specific group is split
+                 # To be valid, ALL members of the group present in the draft must be in T1 
+                 # OR ALL members must be in T2.
+                 
+                 # Filter group members that are actually in the current selection
+                 # (Just in case a roommate isn't playing today)
+                 active_members = [p for p in group if p in selected_players]
+                 if len(active_members) < 2: continue
+
+                 in_t1 = any(p in team1 for p in active_members)
+                 in_t2 = any(p in team2 for p in active_members)
+                 
+                 if in_t1 and in_t2:
+                     is_split = True
+                     break
+            
+            if is_split:
                 continue
 
         s1 = sum(scores[p] for p in team1)

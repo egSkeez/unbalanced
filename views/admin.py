@@ -114,30 +114,64 @@ def render_admin_tab():
                         st.error("No active draft found in database!")
 
             st.markdown("---")
+            st.markdown("---")
             st.subheader("👯 Roommates (Force Together)")
+            st.info("Define groups of players who MUST be on the same team (e.g. they are in the same room). You can have multiple separate groups.")
             
-            current_roommates = get_roommates()
-            # We need to get just potential names, might as well fetch fresh
+            raw_roommates = get_roommates()
+            # Normalize to list of lists for UI handling
+            roommate_groups = []
+            if raw_roommates:
+                if isinstance(raw_roommates[0], list):
+                    roommate_groups = raw_roommates
+                else: 
+                    # Legacy: single list
+                    roommate_groups = [raw_roommates]
+            
             try:
                 p_stats = get_player_stats()
                 all_players_list = p_stats['name'].tolist()
             except:
                 all_players_list = []
+
+            # Display Existing Groups
+            groups_to_keep = []
+            updated = False
             
-            # Filter current_roommates to ensure they exist in current roster
-            valid_defaults = [p for p in current_roommates if p in all_players_list]
+            if roommate_groups:
+                st.write("**Active Groups:**")
+                for i, group in enumerate(roommate_groups):
+                    c1, c2 = st.columns([4, 1])
+                    with c1:
+                        st.code(f"Group {i+1}: {', '.join(group)}")
+                    with c2:
+                        if st.button("🗑️", key=f"del_g_{i}", help="Remove this group"):
+                            updated = True
+                        else:
+                            groups_to_keep.append(group)
             
-            new_roommates = st.multiselect(
-                "Select players who MUST be on the same team:",
-                options=all_players_list,
-                default=valid_defaults
-            )
-            
-            if st.button("💾 Save Roommates"):
-                set_roommates(new_roommates)
-                st.success(f"Roommates updated: {', '.join(new_roommates)}")
-                time.sleep(1)
+            if updated:
+                set_roommates(groups_to_keep)
                 st.rerun()
+
+            # Add New Group
+            with st.expander("➕ Add New Roommate Group"):
+                new_group = st.multiselect(
+                    "Select players for this group:",
+                    options=all_players_list,
+                    key="new_rm_group"
+                )
+                
+                if st.button("Add Group"):
+                    if len(new_group) >= 2:
+                        # Check for duplicates? For now, just allow it, logic handles it.
+                        groups_to_keep.append(new_group)
+                        set_roommates(groups_to_keep)
+                        st.success("Group Added!")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.warning("Select at least 2 players.")
 
 
         # --- Tab 1.5: Lobby History ---
