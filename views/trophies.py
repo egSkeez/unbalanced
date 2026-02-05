@@ -206,6 +206,44 @@ def render_trophies_tab():
                 if 'spent' in col: val = f"${val:,}"
                 trophies.append((title, icon, winner['player_name'], val, unit, grad, txt))
 
+        # --- PROCESS WEAPON STATS ---
+        import json
+        
+        # Define Pistol Weapons
+        pistols = ['glock', 'hkp2000', 'usp_silencer', 'p250', 'elite', 'fiveseven', 'tec9', 'cz75a', 'deagle', 'revolver']
+
+        # Initialize columns
+        df['ak_kills'] = 0
+        df['awp_kills'] = 0
+        df['deagle_kills'] = 0
+        df['pistol_kills'] = 0
+
+        for index, row in df.iterrows():
+            try:
+                # database stores it as string, ensure we parse it
+                w_kills = row.get('weapon_kills', '{}')
+                if isinstance(w_kills, str):
+                    w_kills = json.loads(w_kills)
+                elif not isinstance(w_kills, dict):
+                    w_kills = {}
+                
+                # AK
+                df.at[index, 'ak_kills'] = w_kills.get('ak47', 0)
+                
+                # AWP
+                df.at[index, 'awp_kills'] = w_kills.get('awp', 0)
+                
+                # Deagle
+                df.at[index, 'deagle_kills'] = w_kills.get('deagle', 0)
+                
+                # Pistols (Sum of all pistol types)
+                p_count = sum(w_kills.get(p, 0) for p in pistols)
+                df.at[index, 'pistol_kills'] = p_count
+                
+            except Exception as e:
+                pass
+
+
         add_trophy("Entry King", "👑", "entry_kills", "Opens", "linear-gradient(135deg, #FFD700, #FDB931)", "#FFD700")
         add_trophy("First Death", "🩸", "entry_deaths", "Deaths", "linear-gradient(135deg, #FF416C, #FF4B2B)", "#FF4B2B")
         add_trophy("Master Baiter", "🎣", "rounds_last_alive", "Rounds", "linear-gradient(135deg, #00C6FF, #0072FF)", "#00C6FF")
@@ -217,6 +255,12 @@ def render_trophies_tab():
         add_trophy("Blind Master", "🕶️", "flash_assists", "Assists", "linear-gradient(135deg, #42275a, #734b6d)", "#734b6d")
         add_trophy("The Planter", "🌱", "bomb_plants", "Plants", "linear-gradient(135deg, #F2994A, #F2C94C)", "#F2994A")
         
+        # Weapon Trophies
+        add_trophy("AK-47 Master", "🔫", "ak_kills", "Kills", "linear-gradient(135deg, #b92b27, #1565C0)", "#b92b27") # Red/Blue distinct
+        add_trophy("The Sniper", "🎯", "awp_kills", "Kills", "linear-gradient(135deg, #00b09b, #96c93d)", "#00b09b")  # Greenish
+        add_trophy("One Deag", "🦅", "deagle_kills", "Kills", "linear-gradient(135deg, #CAC531, #F3F9A7)", "#AAA")     # Gold/Shine
+        add_trophy("Pistolier", "🔫", "pistol_kills", "Kills", "linear-gradient(135deg, #bdc3c7, #2c3e50)", "#bdc3c7") # Silver/Metal
+       
         # Render Grid
         cols = st.columns(3)
         for i, t in enumerate(trophies):
