@@ -1,0 +1,941 @@
+{
+    "result": "success",
+    "data": {
+        "server": {
+            "ip": null,
+            "port": null
+        },
+        "id_lobby": 5720688,
+        "lobby_status": 0,
+        "status_match": null,
+        "auth_steamid64_is_host": true,
+        "steamid64_host": "76561198294799864",
+        "match_settings": {
+            "id_data_center": 3,
+            "type_lobby": 2,
+            "password": "kimkim",
+            "id_mode_players_pick": 0,
+            "id_mode_map_pick": 0,
+            "id_mode_location_pick": 0,
+            "id_mode_match_ready": 0,
+            "id_type_match": 1,
+            "map_name": "de_mirage",
+            "custom_modification": [],
+            "players_wait_to_all_ready": false,
+            "enable_overtimes": true,
+            "enable_knife_round": true,
+            "enable_custom_modification": 2,
+            "max_players_3": 5,
+            "max_players_2": 5,
+            "max_players_1": 10,
+            "max_match_pauses": 4,
+            "match_pause_time": 40,
+            "cvar_rounds_to_win": 13,
+            "cvar_freeztime": 15,
+            "cvar_roundtime": 115,
+            "cvar_warmuptime": 15,
+            "cvar_maxrounds": 24,
+            "cvar_count_pause_for_team": 4,
+            "cvar_money_in_overtimes": 10000,
+            "cvar_maxmoney": 16000,
+            "cvar_startmoney": 800,
+            "cvar_timeout_for_spec": 60,
+            "cvar_damage_headshot_only": 0,
+            "cvar_free_armor": 0,
+            "id_mode_random_events": 0,
+            "recreate_match": 1,
+            "cvar_friendlyfire": 1,
+            "cvar_disable_radar": 0,
+            "block_players_switch_team": 0,
+            "min_players_to_start": 2,
+            "team_3_name": "team_Skeez",
+            "team_2_name": null,
+            "steamid64_create": "76561198294799864",
+            "unixtime_create": 1770126055,
+            "unixtime_last_action": 1770126055
+        },
+        "match_stats": {
+            "base": {
+                "team_3": {
+                    "score": 0
+                },
+                "team_2": {
+                    "score": 0
+                },
+                "team_winner": null
+            }
+        },
+        "dates": {
+            "unixtime_lobby_create": 1770126055,
+            "unixtime_last_action": 1770126055,
+            "unixtime_start_match": null,
+            "unixtime_match_end": null,
+            "unixtime_match_create": null,
+            "unixtime_match_cancel": null,
+            "unixtime_start_search_server": null,
+            "unixtime_server_ready": null
+        },
+        "demo": {
+            "status": null
+        },
+        "merge_status": 0,
+        "players": {
+            "76561198294799864": {
+                "steamid64": "76561198294799864",
+                "name": "Skeez",
+                "avatar": "https://avatars.steamstatic.com/2a5e5825269ab02671a7b4ce2aa2a9f7e591f991_full.jpg",
+                "faceit_skill_level": 8,
+                "faceit_elo": 1534,
+                "data": {
+                    "unixtime_connect": 1770126055,
+                    "is_leader": true
+                },
+                "id_slot": 3,
+                "id_slot_unique": 0,
+                "is_leader": true,
+                "is_ready": false,
+                "is_connect_server": false,
+                "is_player_kicked": false,
+                "is_host": true,
+                "is_player_premium": false,
+                "player_vip_group": null,
+                "accessories": {
+                    "background": {
+                        "enable": true,
+                        "web_assets": {
+                            "background": "https://cloud.cybershoke.net/img/p_background/de_dust2_b.jpg",
+                            "cell": "https://cloud.cybershoke.net/img/p_background/de_dust2_b.jpg"
+                        }
+                    }
+                },
+                "match_stats": {
+                    "live": {
+                        "kills": 0,
+                        "deaths": 0,
+                        "assists": 0,
+                        "headshots": 0
+                    }
+                }
+            }
+        },
+        "available_settings": {
+            "id_data_center": [
+                {
+                    "id": 1,
+                    "country": "ru",
+                    "country_full": "Russia",
+                    "city": "Moscow",
+                    "group": 1,
+                    "group_priority": 1,
+                    "name_websocket": "Moscow",
+                    "location": "moscow"
+                },
+                {
+                    "id": 10,
+                    "country": "fi",
+                    "country_full": "Finland",
+                    "city": "Helsinki",
+                    "group": 10,
+                    "group_priority": 1,
+                    "name_websocket": "Helsinki",
+                    "location": "finland"
+                },
+                {
+                    "id": 8,
+                    "country": "de",
+                    "country_full": "Germany",
+                    "city": "Falkenstein",
+                    "group": 8,
+                    "group_priority": 1,
+                    "name_websocket": "FALKENSTEIN",
+                    "location": "germany"
+                },
+                {
+                    "id": 33,
+                    "country": "us",
+                    "country_full": "USA",
+                    "city": "New York",
+                    "group": 18,
+                    "group_priority": 2,
+                    "name_websocket": "NEW-YORK",
+                    "location": "new-york"
+                },
+                {
+                    "id": 6,
+                    "country": "kz",
+                    "country_full": "Kazakhstan",
+                    "city": "Almaty",
+                    "group": 6,
+                    "group_priority": 1,
+                    "name_websocket": "Almaty",
+                    "location": "kazakhstan"
+                },
+                {
+                    "id": 13,
+                    "country": "ge",
+                    "country_full": "Georgia",
+                    "city": "Tbilisi",
+                    "group": 13,
+                    "group_priority": 1,
+                    "name_websocket": "Tbilisi",
+                    "location": "georgia"
+                },
+                {
+                    "id": 2,
+                    "country": "ru",
+                    "country_full": "Russia",
+                    "city": "Novosibirsk",
+                    "group": 2,
+                    "group_priority": 1,
+                    "name_websocket": "Novosibirsk",
+                    "location": "novosibirsk"
+                },
+                {
+                    "id": 5,
+                    "country": "ru",
+                    "country_full": "Russia",
+                    "city": "Ekaterinburg",
+                    "group": 5,
+                    "group_priority": 1,
+                    "name_websocket": "Ekaterinburg",
+                    "location": "ekaterinburg"
+                },
+                {
+                    "id": 4,
+                    "country": "pl",
+                    "country_full": "Poland",
+                    "city": "Warsaw",
+                    "group": 4,
+                    "group_priority": 1,
+                    "name_websocket": "Warsaw",
+                    "location": "warsaw"
+                },
+                {
+                    "id": 3,
+                    "country": "fr",
+                    "country_full": "France",
+                    "city": "Gravelines",
+                    "group": 3,
+                    "group_priority": 1,
+                    "name_websocket": "France",
+                    "location": "france"
+                },
+                {
+                    "id": 25,
+                    "country": "tr",
+                    "country_full": "Turkey",
+                    "city": "Istanbul",
+                    "group": 24,
+                    "group_priority": 1,
+                    "name_websocket": "ISTANBUL",
+                    "location": "turkey"
+                },
+                {
+                    "id": 31,
+                    "country": "us",
+                    "country_full": "USA",
+                    "city": "Chicago",
+                    "group": 29,
+                    "group_priority": 1,
+                    "name_websocket": "CHICAGO",
+                    "location": "chicago"
+                },
+                {
+                    "id": 23,
+                    "country": "lt",
+                    "country_full": "Vilnius",
+                    "city": "Lithuania",
+                    "group": 23,
+                    "group_priority": 1,
+                    "name_websocket": "LITHUANIA",
+                    "location": "lithuania"
+                },
+                {
+                    "id": 16,
+                    "country": "se",
+                    "country_full": "Sweden",
+                    "city": "Stockholm",
+                    "group": 16,
+                    "group_priority": 1,
+                    "name_websocket": "Stockholm",
+                    "location": "sweden"
+                },
+                {
+                    "id": 27,
+                    "country": "in",
+                    "country_full": "India",
+                    "city": "Mumbai",
+                    "group": 26,
+                    "group_priority": 1,
+                    "name_websocket": "MUMBAI",
+                    "location": "mumbai"
+                },
+                {
+                    "id": 26,
+                    "country": "sg",
+                    "country_full": "Asia",
+                    "city": "Singapore",
+                    "group": 25,
+                    "group_priority": 1,
+                    "name_websocket": "SINGAPORE",
+                    "location": "singapore"
+                },
+                {
+                    "id": 29,
+                    "country": "au",
+                    "country_full": "Australia",
+                    "city": "Sydney",
+                    "group": 27,
+                    "group_priority": 1,
+                    "name_websocket": "SYDNEY",
+                    "location": "sydney"
+                },
+                {
+                    "id": 30,
+                    "country": "br",
+                    "country_full": "Brazil",
+                    "city": "Sao Paulo",
+                    "group": 28,
+                    "group_priority": 1,
+                    "name_websocket": "SAO-PAULO",
+                    "location": "sao-paulo"
+                },
+                {
+                    "id": 28,
+                    "country": "gb",
+                    "country_full": "Great Britain",
+                    "city": "London",
+                    "group": 15,
+                    "group_priority": 1,
+                    "name_websocket": "London",
+                    "location": "gb"
+                },
+                {
+                    "id": 35,
+                    "country": "us",
+                    "country_full": "USA",
+                    "city": "Dallas",
+                    "group": 31,
+                    "group_priority": 1,
+                    "name_websocket": "DALLAS",
+                    "location": "dallas"
+                },
+                {
+                    "id": 34,
+                    "country": "us",
+                    "country_full": "USA",
+                    "city": "Los Angeles",
+                    "group": 30,
+                    "group_priority": 1,
+                    "name_websocket": "LOS-ANGELES",
+                    "location": "los-angeles"
+                },
+                {
+                    "id": 36,
+                    "country": "kz",
+                    "country_full": "Kazakhstan",
+                    "city": "Astana",
+                    "group": 32,
+                    "group_priority": 1,
+                    "name_websocket": "ASTANA",
+                    "location": "astana"
+                }
+            ],
+            "type_lobby": [
+                {
+                    "id": 0,
+                    "name": "{{OPEN-2}}",
+                    "need_password": false,
+                    "searches": true
+                },
+                {
+                    "id": 1,
+                    "name": "{{CLOSED-2}}",
+                    "need_password": true,
+                    "searches": true
+                },
+                {
+                    "id": 2,
+                    "name": "{{PRIVATE-2}}",
+                    "need_password": true,
+                    "searches": false
+                }
+            ],
+            "password": {
+                "type": "str",
+                "min": 1,
+                "max": 12
+            },
+            "id_mode_players_pick": [
+                {
+                    "id": 0,
+                    "name": "\u0411\u0435\u0437 \u043f\u0438\u043a\u0430 \u0438\u0433\u0440\u043e\u043a\u043e\u0432"
+                },
+                {
+                    "id": 1,
+                    "name": "\u041f\u0438\u043a \u0438\u0433\u0440\u043e\u043a\u043e\u0432 \u043b\u0438\u0434\u0435\u0440\u0430\u043c\u0438"
+                }
+            ],
+            "id_mode_match_ready": [
+                {
+                    "id": 0,
+                    "name": "{{HOST-S-M}}"
+                },
+                {
+                    "id": 1,
+                    "name": "{{MATCH-S-IS-A-R}}"
+                }
+            ],
+            "id_mode_map_pick": [
+                {
+                    "id": 0,
+                    "name": "\u0425\u043e\u0441\u0442 \u0432\u044b\u0431\u0438\u0440\u0430\u0435\u0442 \u043a\u0430\u0440\u0442\u0443"
+                },
+                {
+                    "id": 1,
+                    "name": "\u041a\u0430\u0440\u0442\u0430 \u0432\u044b\u0431\u0438\u0440\u0430\u0435\u0442\u0441\u044f \u0433\u043e\u043b\u043e\u0441\u043e\u0432\u0430\u043d\u0438\u0435\u043c"
+                }
+            ],
+            "id_mode_location_pick": [
+                {
+                    "id": 0,
+                    "name": "\u0425\u043e\u0441\u0442 \u0432\u044b\u0431\u0438\u0440\u0430\u0435\u0442 \u043b\u043e\u043a\u0430\u0446\u0438\u044e"
+                },
+                {
+                    "id": 1,
+                    "name": "\u041b\u043e\u043a\u0430\u0446\u0438\u044f \u0432\u044b\u0431\u0438\u0440\u0430\u0435\u0442\u0441\u044f \u0433\u043e\u043b\u043e\u0441\u043e\u0432\u0430\u043d\u0438\u0435\u043c"
+                }
+            ],
+            "custom_modification": [
+                {
+                    "id": 3,
+                    "name": "{{RANDOMIZED-MODELS}}",
+                    "desc": "{{RANDOMIZED-MODELS-D}}",
+                    "command": "!mskins",
+                    "unique_name": "funrounds.random_models",
+                    "img": "//cloud.cybershoke.net/pages/matches/modifications/random_models.png"
+                },
+                {
+                    "id": 4,
+                    "name": "{{PARACHUTE}}",
+                    "desc": "{{PARACHUTE-D}}",
+                    "command": "!parachute",
+                    "unique_name": "funrounds.parachute",
+                    "img": "//cloud.cybershoke.net/pages/matches/modifications/parachute.png"
+                },
+                {
+                    "id": 5,
+                    "name": "{{BHOP-1}}",
+                    "desc": "{{BHOP-1-D}}",
+                    "command": "!bhop",
+                    "unique_name": "funrounds.bhop",
+                    "img": "//cloud.cybershoke.net/pages/matches/modifications/bhop.png"
+                }
+            ],
+            "id_type_match": [
+                {
+                    "id": 1,
+                    "name": "5x5",
+                    "maps": [
+                        "de_mirage",
+                        "de_overpass",
+                        "de_dust2",
+                        "de_train",
+                        "de_ancient",
+                        "de_inferno",
+                        "de_nuke",
+                        "de_anubis"
+                    ]
+                },
+                {
+                    "id": 3,
+                    "name": "1x1 - Classic",
+                    "maps": [
+                        "de_mirage",
+                        "de_dust2",
+                        "de_inferno",
+                        "de_nuke",
+                        "de_vertigo",
+                        "de_ancient",
+                        "de_anubis",
+                        "de_overpass",
+                        "cs_office"
+                    ]
+                },
+                {
+                    "id": 4,
+                    "name": "1x1 - AIM",
+                    "maps": [
+                        "aim_map_s2",
+                        "aim_map_carton",
+                        "aim_redline_carton",
+                        "aim_studio",
+                        "aim_ramps",
+                        "aim_awp_row",
+                        "aim_allpistols_s2",
+                        "aim_japan",
+                        "aim_kingdom",
+                        "aim_map_deadlock",
+                        "awp_lego_2",
+                        "aim_map",
+                        "awp_india_hd"
+                    ]
+                },
+                {
+                    "id": 7,
+                    "name": "2x2 - Wingman",
+                    "maps": [
+                        "de_nuke",
+                        "de_inferno",
+                        "de_dust2_wingman",
+                        "de_mirage_wingman",
+                        "de_train_wingman",
+                        "de_anubis_wingman",
+                        "gd_rialto",
+                        "de_overpass",
+                        "de_vertigo",
+                        "de_lake"
+                    ]
+                }
+            ],
+            "team_2_name": {
+                "type": "str",
+                "min": 1,
+                "max": 18,
+                "access_null": true
+            },
+            "team_3_name": {
+                "type": "str",
+                "min": 1,
+                "max": 18,
+                "access_null": true
+            },
+            "enable_overtimes": {
+                "type": "bool"
+            },
+            "enable_knife_round": {
+                "type": "bool"
+            },
+            "enable_custom_modification": [
+                {
+                    "id": 0,
+                    "name": "{{DISABLED-2}}"
+                },
+                {
+                    "id": 1,
+                    "name": "{{SELECTS-HOST}}",
+                    "only_premium_host": false
+                },
+                {
+                    "id": 2,
+                    "name": "{{PLAYERS-CHOICE}}",
+                    "only_premium_host": false
+                }
+            ],
+            "max_players_3": {
+                "type": "number",
+                "min": 1,
+                "max": 10
+            },
+            "max_players_2": {
+                "type": "number",
+                "min": 1,
+                "max": 10
+            },
+            "max_players_1": {
+                "type": "number",
+                "min": 0,
+                "max": 20
+            },
+            "max_match_pauses": {
+                "type": "number",
+                "min": 0,
+                "max": 6
+            },
+            "match_pause_time": {
+                "type": "number",
+                "min": 1,
+                "max": 90
+            },
+            "cvar_maxrounds": {
+                "type": "number",
+                "min": 1,
+                "max": 60
+            },
+            "cvar_maxmoney": {
+                "type": "number",
+                "min": 1,
+                "max": 60000
+            },
+            "cvar_startmoney": {
+                "type": "number",
+                "min": 0,
+                "max": 16000
+            },
+            "cvar_freeztime": {
+                "type": "number",
+                "min": 0,
+                "max": 30
+            },
+            "cvar_roundtime": {
+                "type": "number",
+                "min": 10,
+                "max": 200
+            },
+            "cvar_warmuptime": {
+                "type": "number",
+                "min": 0,
+                "max": 60
+            },
+            "cvar_count_pause_for_team": {
+                "type": "number",
+                "min": 1,
+                "max": 9
+            },
+            "cvar_money_in_overtimes": {
+                "type": "number",
+                "min": 0,
+                "max": 16000
+            },
+            "cvar_timeout_for_spec": {
+                "type": "number",
+                "min": 1,
+                "max": 120
+            },
+            "cvar_damage_headshot_only": {
+                "type": "bool"
+            },
+            "block_players_switch_team": [
+                {
+                    "id": 0,
+                    "name": "{{FREE-MOVEMENT}}"
+                },
+                {
+                    "id": 1,
+                    "name": "{{LIMITED-MOVEMENT}}"
+                }
+            ],
+            "cvar_free_armor": [
+                {
+                    "id": 0,
+                    "name": "{{DEFAULT}}"
+                },
+                {
+                    "id": 1,
+                    "name": "{{ARMOR}}"
+                },
+                {
+                    "id": 2,
+                    "name": "{{ARMOR}} + {{HELMET}}"
+                }
+            ],
+            "cvar_friendlyfire": [
+                {
+                    "id": 1,
+                    "name": "{{ENABLED-1}}"
+                },
+                {
+                    "id": 0,
+                    "name": "{{OFF-2}}"
+                }
+            ],
+            "recreate_match": [
+                {
+                    "id": 0,
+                    "name": "{{OFF-2}}"
+                },
+                {
+                    "id": 1,
+                    "name": "{{ENABLED-1}}"
+                }
+            ],
+            "id_mode_random_events": [
+                {
+                    "id": 0,
+                    "name": "{{OFF-2}}"
+                },
+                {
+                    "id": 1,
+                    "name": "{{ENABLED-1}}"
+                }
+            ],
+            "cvar_disable_radar": [
+                {
+                    "id": 0,
+                    "name": "{{ENABLED-1}}"
+                },
+                {
+                    "id": 1,
+                    "name": "{{OFF-2}}"
+                }
+            ],
+            "players_wait_to_all_ready": {
+                "type": "bool"
+            },
+            "map_name": [
+                {
+                    "id": "de_mirage",
+                    "name": "de_mirage"
+                },
+                {
+                    "id": "de_overpass",
+                    "name": "de_overpass"
+                },
+                {
+                    "id": "de_dust2",
+                    "name": "de_dust2"
+                },
+                {
+                    "id": "de_train",
+                    "name": "de_train"
+                },
+                {
+                    "id": "de_ancient",
+                    "name": "de_ancient"
+                },
+                {
+                    "id": "de_inferno",
+                    "name": "de_inferno"
+                },
+                {
+                    "id": "de_nuke",
+                    "name": "de_nuke"
+                },
+                {
+                    "id": "de_anubis",
+                    "name": "de_anubis"
+                }
+            ]
+        },
+        "available_players_settings": {
+            "custom_modification": [
+                {
+                    "id": 3,
+                    "name": "{{RANDOMIZED-MODELS}}",
+                    "desc": "{{RANDOMIZED-MODELS-D}}",
+                    "command": "!mskins",
+                    "unique_name": "funrounds.random_models",
+                    "img": "//cloud.cybershoke.net/pages/matches/modifications/random_models.png"
+                },
+                {
+                    "id": 4,
+                    "name": "{{PARACHUTE}}",
+                    "desc": "{{PARACHUTE-D}}",
+                    "command": "!parachute",
+                    "unique_name": "funrounds.parachute",
+                    "img": "//cloud.cybershoke.net/pages/matches/modifications/parachute.png"
+                },
+                {
+                    "id": 5,
+                    "name": "{{BHOP-1}}",
+                    "desc": "{{BHOP-1-D}}",
+                    "command": "!bhop",
+                    "unique_name": "funrounds.bhop",
+                    "img": "//cloud.cybershoke.net/pages/matches/modifications/bhop.png"
+                }
+            ]
+        },
+        "locations_data": [
+            {
+                "id_data_center": 1,
+                "country": "ru",
+                "key": "Moscow",
+                "country_full": "Russia",
+                "city": "Moscow",
+                "location": "moscow"
+            },
+            {
+                "id_data_center": 2,
+                "country": "ru",
+                "key": "Novosibirsk",
+                "country_full": "Russia",
+                "city": "Novosibirsk",
+                "location": "novosibirsk"
+            },
+            {
+                "id_data_center": 3,
+                "country": "fr",
+                "key": "France",
+                "country_full": "France",
+                "city": "Gravelines",
+                "location": "france"
+            },
+            {
+                "id_data_center": 4,
+                "country": "pl",
+                "key": "Warsaw",
+                "country_full": "Poland",
+                "city": "Warsaw",
+                "location": "warsaw"
+            },
+            {
+                "id_data_center": 5,
+                "country": "ru",
+                "key": "Ekaterinburg",
+                "country_full": "Russia",
+                "city": "Ekaterinburg",
+                "location": "ekaterinburg"
+            },
+            {
+                "id_data_center": 6,
+                "country": "kz",
+                "key": "Almaty",
+                "country_full": "Kazakhstan",
+                "city": "Almaty",
+                "location": "kazakhstan"
+            },
+            {
+                "id_data_center": 8,
+                "country": "de",
+                "key": "FALKENSTEIN",
+                "country_full": "Germany",
+                "city": "Falkenstein",
+                "location": "germany"
+            },
+            {
+                "id_data_center": 10,
+                "country": "fi",
+                "key": "Helsinki",
+                "country_full": "Finland",
+                "city": "Helsinki",
+                "location": "finland"
+            },
+            {
+                "id_data_center": 13,
+                "country": "ge",
+                "key": "Tbilisi",
+                "country_full": "Georgia",
+                "city": "Tbilisi",
+                "location": "georgia"
+            },
+            {
+                "id_data_center": 16,
+                "country": "se",
+                "key": "Stockholm",
+                "country_full": "Sweden",
+                "city": "Stockholm",
+                "location": "sweden"
+            },
+            {
+                "id_data_center": 23,
+                "country": "lt",
+                "key": "LITHUANIA",
+                "country_full": "Vilnius",
+                "city": "Lithuania",
+                "location": "lithuania"
+            },
+            {
+                "id_data_center": 25,
+                "country": "tr",
+                "key": "ISTANBUL",
+                "country_full": "Turkey",
+                "city": "Istanbul",
+                "location": "turkey"
+            },
+            {
+                "id_data_center": 26,
+                "country": "sg",
+                "key": "SINGAPORE",
+                "country_full": "Asia",
+                "city": "Singapore",
+                "location": "singapore"
+            },
+            {
+                "id_data_center": 27,
+                "country": "in",
+                "key": "MUMBAI",
+                "country_full": "India",
+                "city": "Mumbai",
+                "location": "mumbai"
+            },
+            {
+                "id_data_center": 28,
+                "country": "gb",
+                "key": "London",
+                "country_full": "Great Britain",
+                "city": "London",
+                "location": "gb"
+            },
+            {
+                "id_data_center": 29,
+                "country": "au",
+                "key": "SYDNEY",
+                "country_full": "Australia",
+                "city": "Sydney",
+                "location": "sydney"
+            },
+            {
+                "id_data_center": 30,
+                "country": "br",
+                "key": "SAO-PAULO",
+                "country_full": "Brazil",
+                "city": "Sao Paulo",
+                "location": "sao-paulo"
+            },
+            {
+                "id_data_center": 31,
+                "country": "us",
+                "key": "CHICAGO",
+                "country_full": "USA",
+                "city": "Chicago",
+                "location": "chicago"
+            },
+            {
+                "id_data_center": 33,
+                "country": "us",
+                "key": "NEW-YORK",
+                "country_full": "USA",
+                "city": "New York",
+                "location": "new-york"
+            },
+            {
+                "id_data_center": 34,
+                "country": "us",
+                "key": "LOS-ANGELES",
+                "country_full": "USA",
+                "city": "Los Angeles",
+                "location": "los-angeles"
+            },
+            {
+                "id_data_center": 35,
+                "country": "us",
+                "key": "DALLAS",
+                "country_full": "USA",
+                "city": "Dallas",
+                "location": "dallas"
+            },
+            {
+                "id_data_center": 36,
+                "country": "kz",
+                "key": "ASTANA",
+                "country_full": "Kazakhstan",
+                "city": "Astana",
+                "location": "astana"
+            }
+        ],
+        "ip_pings_data_center": {
+            "1": 46,
+            "3": 5,
+            "4": 30,
+            "6": 111,
+            "7": 6,
+            "8": 15,
+            "9": 11,
+            "10": 38,
+            "11": 40,
+            "13": 59,
+            "16": 34,
+            "23": 35,
+            "25": 56,
+            "27": 162,
+            "28": 20,
+            "29": 255,
+            "30": 206,
+            "31": 98,
+            "33": 81,
+            "34": 141,
+            "35": 116,
+            "36": 121
+        }
+    }
+}

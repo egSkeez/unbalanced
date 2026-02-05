@@ -484,6 +484,44 @@ def render_admin_tab():
                         else:
                             st.error(dl_msg)
             
+            st.divider()
+            st.subheader("📤 Upload Processed Match (Local)")
+            uploaded_file = st.file_uploader("Upload match_ID.json", type=["json"])
+            
+            if uploaded_file is not None:
+                if st.button("💾 Save Uploaded Match"):
+                    try:
+                        import json
+                        import pandas as pd
+                        
+                        data = json.load(uploaded_file)
+                        
+                        # Extract Metadata
+                        u_mid = data.get("match_id")
+                        u_map = data.get("map_name", "Unknown")
+                        u_score = data.get("score_str", "0-0")
+                        u_ts = data.get("score_t", 0)
+                        u_ct = data.get("score_ct", 0)
+                        
+                        # Reconstruct DataFrame
+                        p_stats = data.get("player_stats", [])
+                        if p_stats:
+                            df = pd.DataFrame(p_stats)
+                            
+                            # Ensure MultiKills/WeaponKills are dicts if they came as strings?
+                            # Usually from JSON they come as dicts directly. 
+                            # The save function expects the DF to have them as dicts (it serializes them).
+                            
+                            save_match_stats(u_mid, u_mid, u_score, df, u_map, u_ts, u_ct)
+                            
+                            st.success(f"Successfully saved Match {u_mid}!")
+                            st.json(data['player_stats'][0] if data['player_stats'] else {})
+                        else:
+                            st.error("No player stats found in JSON.")
+                            
+                    except Exception as e:
+                        st.error(f"Error processing file: {e}")
+            
             # Persist display if available
             if 'last_stats_df' in st.session_state:
                  st.divider()

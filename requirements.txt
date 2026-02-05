@@ -4,3 +4,6 @@ streamlit-autorefresh
 qrcode[pil]
 demoparser2
 requests
+fastapi
+uvicorn
+python-multipart
