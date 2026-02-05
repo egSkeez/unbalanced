@@ -126,10 +126,29 @@ def process_match_local(match_id, admin_name="Skeez", upload_url=None):
             try:
                 headers = {'Content-Type': 'application/json'}
                 resp = requests.post(upload_url, json=output_data, headers=headers)
-                if resp.status_code == 200:
+                
+                # Validation: Streamlit Cloud returns 200 OK HTML pages for invalid endpoints.
+                # We must check if the content is actually JSON and successful.
+                
+                is_valid = False
+                try:
+                    resp_json = resp.json()
+                    if resp.status_code == 200 and resp_json.get("status") == "success":
+                         is_valid = True
+                except:
+                    pass
+                
+                if is_valid:
                     print("🚀 MATCH UPLOADED SUCCESSFULLY TO WEB APP!")
                 else:
-                    print(f"❌ Upload Failed: {resp.status_code} - {resp.text}")
+                    print(f"❌ Upload Failed or Invalid Endpoint.")
+                    print(f"   Status: {resp.status_code}")
+                    print(f"   Response (First 100 chars): {resp.text[:100]}")
+                    if "<!doctype html>" in resp.text.lower():
+                        print("   ⚠️ WARNING: You seem to be targeting a Streamlit App directly.")
+                        print("   Streamlit Cloud DOES NOT support this API endpoint.")
+                        print("   Please use the MANUAL UPLOAD feature in the Admin Tab.")
+                    
             except Exception as ul_e:
                 print(f"❌ Connection Error during upload: {ul_e}")
                 
@@ -142,7 +161,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Local CS2 Match Processor")
     parser.add_argument("match_id", help="Cybershoke Match ID (e.g. 5394408)")
     parser.add_argument("--admin", default="Skeez", help="Admin name for cookies (default: Skeez)")
-    parser.add_argument("--upload-url", help="API URL to auto-upload results (e.g. http://localhost:8000/upload_match)")
+    # Default URL set as requested, though it may not work on Streamlit Cloud without separate hosting
+    parser.add_argument("--upload-url", default="https://unbalanced-wac3gydqklzbeeuomp6adp.streamlit.app/upload_match", help="API URL to auto-upload results")
     
     args = parser.parse_args()
     
