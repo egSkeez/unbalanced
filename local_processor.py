@@ -6,13 +6,14 @@ import pandas as pd
 from demo_download import download_demo
 from demo_analysis import analyze_demo_file
 from cybershoke import get_lobby_player_stats
+import requests
 
 # Ensure output directory exists
 OUTPUT_DIR = "processed_matches"
 if not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR)
 
-def process_match_local(match_id, admin_name="Skeez"):
+def process_match_local(match_id, admin_name="Skeez", upload_url=None):
     print(f"--- Starting Local Processing for Match {match_id} ---")
     
     # 1. Download Demo
