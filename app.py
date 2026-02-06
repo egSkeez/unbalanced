@@ -1,7 +1,7 @@
 # app.py
 import streamlit as st
 import random
-from database import init_db, get_player_stats, save_draft_state, load_draft_state, clear_draft_state, get_roommates
+from database import init_db, get_player_stats, save_draft_state, load_draft_state, clear_draft_state, get_roommates, get_vote_status
 from cybershoke import init_cybershoke_db
 from logic import get_best_combinations
 from utils import render_custom_css
@@ -84,6 +84,13 @@ if 'teams_locked' not in st.session_state or not st.session_state.teams_locked:
         st.session_state.revealed = True
         if db_map: st.session_state.global_map_pick = db_map
         st.session_state.draft_mode = mode
+        
+        # RESTORE PINS IF MISSING (e.g. Refresh)
+        if 'draft_pins' not in st.session_state:
+            v_df = get_vote_status()
+            if not v_df.empty:
+                # Ensure unique captains only (though DB ensures primary key)
+                st.session_state.draft_pins = dict(zip(v_df['captain_name'], v_df['pin']))
 
 if st.session_state.get("veto_complete_trigger", False):
     st.session_state.veto_complete_trigger = False

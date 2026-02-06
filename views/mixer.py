@@ -396,6 +396,7 @@ def render_mixer_tab(player_df):
                              other_cap = next((c for c in caps if c not in t1), None)
                              other_row = v_df[v_df['captain_name'] == other_cap].iloc[0]
                              set_draft_pins(new_cap, new_token, other_cap, other_row['pin'])
+                             st.session_state.draft_pins = {new_cap: new_token, other_cap: other_row['pin']}
                              st.session_state.audio_cue = "captain_pick"
                              st.toast(f"Captain changed to {new_cap}"); st.rerun()
         with c2: 
@@ -414,6 +415,7 @@ def render_mixer_tab(player_df):
                              other_cap = next((c for c in caps if c not in t2), None)
                              other_row = v_df[v_df['captain_name'] == other_cap].iloc[0]
                              set_draft_pins(other_cap, other_row['pin'], new_cap, new_token)
+                             st.session_state.draft_pins = {other_cap: other_row['pin'], new_cap: new_token}
                              st.session_state.audio_cue = "captain_pick"
                              st.toast(f"Captain changed to {new_cap}"); st.rerun()
         
