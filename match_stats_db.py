@@ -84,15 +84,45 @@ def init_match_stats_tables():
                   has_demo INTEGER DEFAULT 0,  -- 0: Unknown, 1: Yes, -1: No
                   analysis_status TEXT DEFAULT 'pending', -- pending, analyzed, error, no_demo
                   notes TEXT)''')
+    
+    # Create unique index on cybershoke_id to prevent duplicate match analysis
+    # Only applies to non-manual entries
+    c.execute('''CREATE INDEX IF NOT EXISTS idx_cybershoke_id 
+                 ON match_details(cybershoke_id)''')
 
     conn.commit()
     conn.close()
 
-def save_match_stats(match_id, cybershoke_id, score_str, stats_df, map_name="Unknown", score_t=0, score_ct=0):
+def is_lobby_already_analyzed(cybershoke_id):
+    """
+    Checks if a match with this cybershoke_id has already been analyzed.
+    Returns True if already exists, False otherwise.
+    Ignores 'manual' entries.
+    """
+    if not cybershoke_id or cybershoke_id == 'manual':
+        return False
+    
+    conn = sqlite3.connect('cs2_history.db')
+    c = conn.cursor()
+    c.execute("SELECT match_id FROM match_details WHERE cybershoke_id = ?", (str(cybershoke_id),))
+    result = c.fetchone()
+    conn.close()
+    
+    return result is not None
+
+def save_match_stats(match_id, cybershoke_id, score_str, stats_df, map_name="Unknown", score_t=0, score_ct=0, force_overwrite=False):
     """
     Saves match statistics to the database.
+    If a match with the same cybershoke_id already exists, skips saving unless force_overwrite=True.
+    Returns True if saved, False if skipped due to duplicate.
     """
     import json
+    
+    # Duplicate check: If cybershoke_id exists (and not 'manual'), skip unless forced
+    if not force_overwrite and cybershoke_id and cybershoke_id != 'manual':
+        if is_lobby_already_analyzed(cybershoke_id):
+            print(f"⚠️ Match with cybershoke_id {cybershoke_id} already analyzed. Skipping duplicate.")
+            return False
     
     conn = sqlite3.connect('cs2_history.db', timeout=30)
     c = conn.cursor()
@@ -109,8 +139,12 @@ def save_match_stats(match_id, cybershoke_id, score_str, stats_df, map_name="Unk
     
     total_rounds = score_t + score_ct
     
-    # Delete existing match first to ensure fresh timestamp
+    # Delete existing match first to ensure fresh timestamp (for overwrite case)
     c.execute("DELETE FROM match_details WHERE match_id = ?", (match_id,))
+    
+    # Also delete any match with same cybershoke_id if we're force overwriting
+    if force_overwrite and cybershoke_id and cybershoke_id != 'manual':
+        c.execute("DELETE FROM match_details WHERE cybershoke_id = ?", (str(cybershoke_id),))
     
     # Insert new match details with current timestamp
     c.execute('''INSERT INTO match_details 
@@ -196,6 +230,8 @@ def save_match_stats(match_id, cybershoke_id, score_str, stats_df, map_name="Unk
             update_player_steamid(name, steam)
         except Exception as e:
             print(f"Failed to update steamid for {name}: {e}")
+    
+    return True  # Successfully saved
 
 def get_player_aggregate_stats(player_name, start_date=None, end_date=None):
     """

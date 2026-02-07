@@ -7,7 +7,7 @@ from cybershoke import get_lobby_link, set_lobby_link, clear_lobby_link, create_
 from discord_bot import send_full_match_info, send_lobby_to_discord
 from demo_download import download_demo
 from demo_analysis import analyze_demo_file
-from match_stats_db import save_match_stats, get_all_lobbies, update_lobby_status, add_lobby
+from match_stats_db import save_match_stats, get_all_lobbies, update_lobby_status, add_lobby, is_lobby_already_analyzed
 import os
 
 def render_admin_tab():
@@ -202,43 +202,50 @@ def render_admin_tab():
                     
                     with col_h1:
                         if st.button("📥 Download & Analyze", type="primary", use_container_width=True):
-                             with st.spinner(f"Processing Lobby {selected_lobby}..."):
-                                 # 1. Download
-                                 success, msg = download_demo(str(selected_lobby), st.session_state.admin_user)
-                                 
-                                 if success:
-                                     # 2. Analyze
-                                     expected_filename = f"demos/match_{selected_lobby}.dem"
-                                     if os.path.exists(expected_filename):
-                                         try:
-                                             st.text("Analyzing demo file...")
-                                             score_res, stats_res, map_name, score_t, score_ct = analyze_demo_file(expected_filename)
-                                             
-                                             if stats_res is not None:
-                                                 # Save stats
-                                                 match_id = f"match_{selected_lobby}"
-                                                 save_match_stats(match_id, str(selected_lobby), score_res, stats_res, map_name, score_t, score_ct)
+                             # Check if already analyzed first
+                             if is_lobby_already_analyzed(str(selected_lobby)):
+                                 st.warning(f"⚠️ Lobby {selected_lobby} has already been analyzed. Use force re-analyze if needed.")
+                             else:
+                                 with st.spinner(f"Processing Lobby {selected_lobby}..."):
+                                     # 1. Download
+                                     success, msg = download_demo(str(selected_lobby), st.session_state.admin_user)
+                                     
+                                     if success:
+                                         # 2. Analyze
+                                         expected_filename = f"demos/match_{selected_lobby}.dem"
+                                         if os.path.exists(expected_filename):
+                                             try:
+                                                 st.text("Analyzing demo file...")
+                                                 score_res, stats_res, map_name, score_t, score_ct = analyze_demo_file(expected_filename)
                                                  
-                                                 # Update Lobby Status
-                                                 update_lobby_status(selected_lobby, has_demo=1, status='analyzed')
-                                                 
-                                                 st.success(f"Analyzed & Saved! Result: {score_res}")
-                                             else:
-                                                  st.error("Analysis failed (parse error).")
-                                                  update_lobby_status(selected_lobby, status='error')
-                                         except Exception as e:
-                                             st.error(f"Error during analysis: {e}")
-                                             update_lobby_status(selected_lobby, status='error')
-                                         finally:
-                                             if os.path.exists(expected_filename):
-                                                 os.remove(expected_filename)
+                                                 if stats_res is not None:
+                                                     # Save stats
+                                                     match_id = f"match_{selected_lobby}"
+                                                     saved = save_match_stats(match_id, str(selected_lobby), score_res, stats_res, map_name, score_t, score_ct)
+                                                     
+                                                     if saved:
+                                                         # Update Lobby Status
+                                                         update_lobby_status(selected_lobby, has_demo=1, status='analyzed')
+                                                         st.success(f"Analyzed & Saved! Result: {score_res}")
+                                                     else:
+                                                         st.warning("Match already exists in database (duplicate skipped).")
+                                                         update_lobby_status(selected_lobby, has_demo=1, status='analyzed')
+                                                 else:
+                                                      st.error("Analysis failed (parse error).")
+                                                      update_lobby_status(selected_lobby, status='error')
+                                             except Exception as e:
+                                                 st.error(f"Error during analysis: {e}")
+                                                 update_lobby_status(selected_lobby, status='error')
+                                             finally:
+                                                 if os.path.exists(expected_filename):
+                                                     os.remove(expected_filename)
+                                         else:
+                                             st.error("Demo file not found after download reported success.")
                                      else:
-                                         st.error("Demo file not found after download reported success.")
-                                 else:
-                                     st.error(f"Download failed: {msg}")
-                                 
-                                 time.sleep(2)
-                                 st.rerun()
+                                         st.error(f"Download failed: {msg}")
+                                     
+                                     time.sleep(2)
+                                     st.rerun()
 
                     with col_h2:
                         if st.button("🚫 Mark 'No Demo'", use_container_width=True):
