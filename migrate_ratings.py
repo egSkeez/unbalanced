@@ -108,5 +108,34 @@ def migrate():
     conn.close()
     print("Migration Complete!")
 
+def check_and_migrate():
+    """
+    Checks if ratings are uninitialized (all 0 or NULL) despite having matches.
+    If so, runs migration automatically.
+    """
+    try:
+        conn = sqlite3.connect('cs2_history.db')
+        c = conn.cursor()
+        
+        # Check if we have matches
+        c.execute("SELECT COUNT(*) FROM player_match_stats")
+        total_rows = c.fetchone()[0]
+        
+        if total_rows == 0:
+            conn.close()
+            return
+            
+        # Check if we have ANY valid ratings
+        c.execute("SELECT COUNT(*) FROM player_match_stats WHERE rating IS NOT NULL AND rating > 0")
+        valid_ratings = c.fetchone()[0]
+        conn.close()
+        
+        if valid_ratings == 0:
+            print("⚠️ Detected uninitialized ratings. Running auto-migration...")
+            migrate()
+            
+    except Exception as e:
+        print(f"Auto-migration check failed: {e}")
+
 if __name__ == "__main__":
     migrate()

@@ -26,7 +26,9 @@ init_cybershoke_db()
 
 # Initialize match statistics tables
 from match_stats_db import init_match_stats_tables
+from migrate_ratings import check_and_migrate
 init_match_stats_tables()
+check_and_migrate()
 
 # Initialize match registry
 from match_registry import init_match_registry
