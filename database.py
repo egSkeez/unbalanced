@@ -185,6 +185,7 @@ def get_player_stats():
         FROM player_match_stats pms
         JOIN match_details md ON pms.match_id = md.match_id
         WHERE date(md.date_analyzed) >= date('{s2_start}')
+          AND pms.rating IS NOT NULL
         GROUP BY pms.player_name
     '''
     kd_df = pd.read_sql_query(kd_query, conn)

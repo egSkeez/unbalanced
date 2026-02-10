@@ -99,7 +99,7 @@ def render_stats_tab():
                         pms.player_name,
                         COUNT(*) as matches,
                         ROUND(AVG(pms.score), 1) as avg_score,
-                        ROUND(AVG(pms.adr), 1) as avg_adr,
+                        ROUND(AVG(NULLIF(pms.adr, 0)), 1) as avg_adr,
                         ROUND(AVG(NULLIF(pms.rating, 0)), 2) as rating,
                         ROUND(SUM(pms.kills) * 1.0 / NULLIF(SUM(pms.deaths), 0), 2) as kd_ratio,
                         ROUND(AVG(NULLIF(pms.headshot_pct, 0)), 1) as avg_hs_pct,
@@ -108,7 +108,7 @@ def render_stats_tab():
                         COUNT(CASE WHEN pms.match_result = 'L' THEN 1 END) as losses
                     FROM player_match_stats pms
                     JOIN match_details md ON pms.match_id = md.match_id
-                    WHERE 1=1 {date_filter_sql}
+                    WHERE pms.rating IS NOT NULL {date_filter_sql}
                     GROUP BY pms.player_name
                     HAVING matches >= 1
                     ORDER BY rating DESC
@@ -283,7 +283,8 @@ def render_stats_tab():
                             pms.deaths as "D",
                             pms.adr as "ADR",
                             pms.kd_ratio as "K/D",
-                            DATE(md.date_analyzed) as "Date"
+                            DATE(md.date_analyzed) as "Date",
+                            md.lobby_url as "Lobby"
                         FROM player_match_stats pms
                         JOIN match_details md ON pms.match_id = md.match_id
                         WHERE pms.player_name = ?
@@ -301,7 +302,16 @@ def render_stats_tab():
                             elif val in ['D', 'T']: color = '#f1c40f' # Yellow/Tie
                             return f'color: {color}; font-weight: bold;'
 
-                        st.dataframe(hist.style.map(color_result, subset=['Res']), use_container_width=True, hide_index=True)
+                        st.dataframe(
+                            hist.style.map(color_result, subset=['Res']), 
+                            use_container_width=True, 
+                            hide_index=True,
+                            column_config={
+                                "Lobby": st.column_config.LinkColumn("Lobby", display_text="View Lobby"),
+                                "Rating": st.column_config.NumberColumn("Rating", format="%.2f"),
+                                "K/D": st.column_config.NumberColumn("K/D", format="%.2f")
+                            }
+                        )
                     else: st.info("No matches found.")
                 else: st.info("No stats for this period.")
 
@@ -321,9 +331,10 @@ def render_stats_tab():
                 if end_date: df_dates += " AND date(date_analyzed) <= date(?)"; p_dates.append(str(end_date))
                 
                 recent_query = f'''
-                    SELECT match_id, map, 
-                           CAST(score_t AS TEXT) || '-' || CAST(score_ct AS TEXT) as score,
-                           date_analyzed
+                    SELECT map as "Map", 
+                           CAST(score_t AS TEXT) || '-' || CAST(score_ct AS TEXT) as "Score",
+                           date_analyzed as "Date",
+                           lobby_url as "Lobby"
                     FROM match_details
                     WHERE 1=1 {df_dates}
                     ORDER BY date_analyzed DESC
@@ -331,7 +342,14 @@ def render_stats_tab():
                 '''
                 recent = pd.read_sql_query(recent_query, conn, params=p_dates)
                 conn.close()
-                st.dataframe(recent, use_container_width=True, hide_index=True)
+                st.dataframe(
+                    recent, 
+                    use_container_width=True, 
+                    hide_index=True,
+                    column_config={
+                        "Lobby": st.column_config.LinkColumn("Lobby", display_text="View on Cybershoke")
+                    }
+                )
             except:
                 pass
     

@@ -21,6 +21,11 @@ def render_history_tab():
         
         # Display Header
         with st.expander(f"🎮 {date} | {m_map} | {score}"):
+            # Add Direct Link to Lobby
+            lobby_url = match.get('lobby_url')
+            if lobby_url:
+                st.link_button("🌐 View Match Lobby", lobby_url)
+            
             # Fetch details
             stats = get_match_scoreboard(mid)
             

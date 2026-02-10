@@ -119,17 +119,33 @@ def is_lobby_already_analyzed(cybershoke_id):
 
 def calculate_hltv_rating(row, total_rounds):
     """
-    Calculates HLTV Rating 1.0
-    Formula: (KillRating + 0.7 * SurvivalRating + MultiKillRating) / 2.7
-    Returns None if essential stats (MultiKills) are missing.
+    Calculates an approximation of HLTV Rating 2.0.
+    Formula blends KPR, DPR, ADR and Multi-kill stats.
+    Returns None if essential demo stats (ADR) are missing.
     """
     if total_rounds == 0:
         return None
         
     kills = row.get('Kills', 0)
     deaths = row.get('Deaths', 0)
+    adr = row.get('ADR', 0)
     
-    # 3. MultiKill Rating
+    # REQUIREMENT: Only calculate for demo-parsed stats with full data (Web-only matches have ADR=0)
+    if adr <= 0:
+        return None
+
+    # 1. Kill Rating (KPR normalized by 0.679)
+    kpr = kills / total_rounds
+    kill_rating = kpr / 0.679
+    
+    # 2. Survival Rating (Survival rate normalized by 0.317)
+    survival_rate = (total_rounds - deaths) / total_rounds
+    survival_rating = survival_rate / 0.317
+    
+    # 3. ADR Rating (Normalized by 80.0)
+    adr_rating = adr / 80.0
+            
+    # 4. MultiKill Rating
     # We need counts of 1k, 2k, 3k, 4k, 5k
     mk = row.get('MultiKills', None)
     if isinstance(mk, str):
@@ -148,33 +164,28 @@ def calculate_hltv_rating(row, total_rounds):
     else:
         mk = None
     
-    # If MultiKills data is missing, we cannot compute a valid rating
-    if mk is None:
-        return None
-    
-    # 1. Kill Rating
-    kpr = kills / total_rounds
-    kill_rating = kpr / 0.679
-    
-    # 2. Survival Rating
-    survival_rate = (total_rounds - deaths) / total_rounds
-    survival_rating = survival_rate / 0.317
-            
-    # Counts
-    def get_cnt(d, k):
-        return int(d.get(str(k), 0)) + int(d.get(int(k), 0))
+    mk_val = 0
+    if mk:
+        # Counts
+        def get_cnt(d, k):
+            return int(d.get(str(k), 0)) + int(d.get(int(k), 0))
 
-    k1 = get_cnt(mk, 1)
-    k2 = get_cnt(mk, 2)
-    k3 = get_cnt(mk, 3)
-    k4 = get_cnt(mk, 4)
-    k5 = get_cnt(mk, 5)
+        k1 = get_cnt(mk, 1)
+        k2 = get_cnt(mk, 2)
+        k3 = get_cnt(mk, 3)
+        k4 = get_cnt(mk, 4)
+        k5 = get_cnt(mk, 5)
+        # Value = (1K + 4*2K + 9*3K + 16*4K + 25*5K) / Rounds
+        mk_val = (k1 + 4*k2 + 9*k3 + 16*k4 + 25*k5) / total_rounds
     
-    # Value = (1K + 4*2K + 9*3K + 16*4K + 25*5K) / Rounds
-    mk_val = (k1 + 4*k2 + 9*k3 + 16*k4 + 25*k5) / total_rounds
     mk_rating = mk_val / 1.277
     
-    rating = (kill_rating + 0.7 * survival_rating + mk_rating) / 2.7
+    # Simple HLTV 1.0 base
+    rating10 = (kill_rating + 0.7 * survival_rating + mk_rating) / 2.7
+    
+    # Improved blend: Weight HLTV 1.0 (approx) with ADR
+    rating = (rating10 + adr_rating) / 2.0
+        
     return round(rating, 2)
 
 def save_match_stats(match_id, cybershoke_id, score_str, stats_df, map_name="Unknown", score_t=0, score_ct=0, force_overwrite=False, lobby_url=None):
@@ -327,6 +338,10 @@ def get_player_aggregate_stats(player_name, start_date=None, end_date=None):
         where_clause = "WHERE pms.player_name = ?"
         params = [player_name]
     
+    # Filter for matches that have demo data (rating is not null)
+    # AND handle date filtering
+    where_clause += " AND pms.rating IS NOT NULL"
+    
     if start_date:
         where_clause += " AND date(md.date_analyzed) >= date(?)"
         params.append(str(start_date))
@@ -340,7 +355,7 @@ def get_player_aggregate_stats(player_name, start_date=None, end_date=None):
             SUM(pms.kills) as total_kills,
             SUM(pms.deaths) as total_deaths,
             SUM(pms.assists) as total_assists,
-            ROUND(AVG(pms.adr), 1) as avg_adr,
+            ROUND(AVG(NULLIF(pms.adr, 0)), 1) as avg_adr,
             ROUND(AVG(NULLIF(pms.rating, 0)), 2) as avg_rating,
             ROUND(AVG(NULLIF(pms.headshot_pct, 0)), 1) as avg_hs_pct,
             ROUND(SUM(pms.kills) * 1.0 / NULLIF(SUM(pms.deaths), 0), 2) as overall_kd,
@@ -387,7 +402,7 @@ def get_recent_matches(limit=10):
     query = '''
         SELECT match_id, cybershoke_id, map, 
                CAST(score_t AS TEXT) || '-' || CAST(score_ct AS TEXT) as score,
-               date_analyzed
+               date_analyzed, lobby_url
         FROM match_details
         ORDER BY date_analyzed DESC
         LIMIT ?
@@ -432,8 +447,9 @@ def get_season_stats_dump(start_date, end_date):
         JOIN match_details md ON pms.match_id = md.match_id
         WHERE date(md.date_analyzed) >= date(?) 
           AND date(md.date_analyzed) <= date(?)
+          AND pms.rating IS NOT NULL
         GROUP BY pms.player_name
-        HAVING matches_played >= 3
+        HAVING matches_played >= 1
     '''
     
     df = pd.read_sql_query(query, conn, params=(start_date, end_date))
