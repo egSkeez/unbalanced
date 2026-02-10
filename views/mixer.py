@@ -260,16 +260,24 @@ def render_mixer_tab(player_df):
                 col1, col2, col3 = st.columns(3)
                 
                 def run_draft(mode="balanced"):
-                    metric = "avg_kd" if mode == "kd_balanced" else "overall"
+                    if mode == "kd_balanced":
+                        metric = "avg_kd"
+                    elif mode == "hltv_balanced":
+                        metric = "hltv"
+                    else:
+                        metric = "overall"
                     
                     # Dynamically determine Top 2 based on the chosen metric to force split them
-                    current_score_map = dict(zip(player_df['name'], player_df[metric]))
+                    # For hltv, metric is "hltv" but in dataframe column is "avg_rating"
+                    col_name = "avg_rating" if metric == "hltv" else metric
+                    
+                    current_score_map = dict(zip(player_df['name'], player_df[col_name].fillna(0)))
                     sorted_by_metric = sorted(selected, key=lambda x: current_score_map.get(x, 0), reverse=True)
                     dynamic_top_2 = [sorted_by_metric[0], sorted_by_metric[1]]
 
                     roommates = get_roommates()
                     all_combos = get_best_combinations(selected, force_split=dynamic_top_2, force_together=roommates, metric=metric)
-                    ridx = 0 if mode in ["balanced", "kd_balanced"] else random.randint(1, min(50, len(all_combos) - 1))
+                    ridx = 0 if mode in ["balanced", "kd_balanced", "hltv_balanced"] else random.randint(1, min(50, len(all_combos) - 1))
                     t1, t2, a1, a2, gap = all_combos[ridx]
                     n_a, n_b = random.sample(TEAM_NAMES, 2)
                     save_draft_state(t1, t2, n_a, n_b, a1, a2, mode=mode)
@@ -292,9 +300,11 @@ def render_mixer_tab(player_df):
                     if 'draft_pins' in st.session_state: del st.session_state.draft_pins
                     st.rerun()
 
-                if col1.button("⚖️ Perfect Balance", use_container_width=True): run_draft("balanced")
-                if col2.button("🔫 KD Balance", use_container_width=True): run_draft("kd_balanced")
-                if col3.button("🎲 Chaos Mode", use_container_width=True): run_draft("chaos")
+                c1, c2, c3, c4 = st.columns(4)
+                if c1.button("⚖️ Perfect Balance", use_container_width=True): run_draft("balanced")
+                if c2.button("🔫 KD Balance", use_container_width=True): run_draft("kd_balanced")
+                if c3.button("⭐ HLTV Balance", use_container_width=True): run_draft("hltv_balanced")
+                if c4.button("🎲 Chaos Mode", use_container_width=True): run_draft("chaos")
         else:
             render_waiting_screen()
     else:
@@ -302,8 +312,9 @@ def render_mixer_tab(player_df):
         name_a, name_b = st.session_state.assigned_names
         # Decide which metric to sort by for display
         if st.session_state.get("draft_mode") == "kd_balanced":
-             # Use fillna logic similar to logic.py or trust database.py's fillna
              score_map = dict(zip(player_df['name'], player_df['avg_kd']))
+        elif st.session_state.get("draft_mode") == "hltv_balanced":
+             score_map = dict(zip(player_df['name'], player_df['avg_rating'].fillna(1.0)))
         else:
              score_map = dict(zip(player_df['name'], player_df['overall']))
              
@@ -312,7 +323,7 @@ def render_mixer_tab(player_df):
         
         if st.session_state.admin_authenticated:
             with st.expander("🛠️ Draft Options"):
-                rc1, rc2, rc3 = st.columns(3)
+                rc1, rc2, rc3, rc4 = st.columns(4)
                 with rc1:
                     if st.button("⚖️ Reroll (Balanced)", use_container_width=True): 
                         st.session_state.draft_mode = "balanced"
@@ -324,6 +335,11 @@ def render_mixer_tab(player_df):
                         st.session_state.trigger_reroll = True
                         st.rerun()
                 with rc3:
+                    if st.button("⭐ Reroll (HLTV)", use_container_width=True): 
+                        st.session_state.draft_mode = "hltv_balanced"
+                        st.session_state.trigger_reroll = True
+                        st.rerun()
+                with rc4:
                     if st.button("🎲 Reroll (Chaos)", use_container_width=True): 
                         st.session_state.draft_mode = "balanced" # Chaos uses balanced metric but random pick
                         st.session_state.trigger_reroll = True
@@ -451,6 +467,13 @@ def render_mixer_tab(player_df):
                 try:
                     p_kd = player_df[player_df['name'] == name]['avg_kd'].iloc[0]
                     display_name = f"{display_name} ({p_kd})"
+                except:
+                    pass
+            elif st.session_state.get("draft_mode") == "hltv_balanced":
+                # Find Rating
+                try:
+                    p_rating = player_df[player_df['name'] == name]['avg_rating'].iloc[0]
+                    display_name = f"{display_name} ({p_rating})"
                 except:
                     pass
 

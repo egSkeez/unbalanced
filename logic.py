@@ -8,7 +8,7 @@ def get_best_combinations(selected_players, force_split=None, force_together=Non
     Generates balanced team combinations.
     force_split: A list of 2 player names that MUST be on opposite teams.
     force_together: A list of player names that MUST be on the same team.
-    metric: The dataframe column to use for balancing (default: 'overall', can be 'avg_kd').
+    metric: The dataframe column to use for balancing (default: 'overall', can be 'avg_kd' or 'hltv').
     """
     df = get_player_stats()
     subset = df[df['name'].isin(selected_players)].copy()
@@ -18,6 +18,9 @@ def get_best_combinations(selected_players, force_split=None, force_together=Non
         # Ensure we don't have NaNs for logic
         subset['avg_kd'] = subset['avg_kd'].fillna(0.0)
         scores = dict(zip(subset['name'], subset['avg_kd']))
+    elif metric == "hltv":
+        subset['avg_rating'] = subset['avg_rating'].fillna(1.0)
+        scores = dict(zip(subset['name'], subset['avg_rating']))
     else:
         scores = dict(zip(subset['name'], subset['overall']))
     

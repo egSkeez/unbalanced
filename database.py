@@ -180,7 +180,8 @@ def get_player_stats():
     kd_query = f'''
         SELECT 
             pms.player_name,
-            ROUND(SUM(pms.kills) * 1.0 / NULLIF(SUM(pms.deaths), 0), 2) as avg_kd
+            ROUND(SUM(pms.kills) * 1.0 / NULLIF(SUM(pms.deaths), 0), 2) as avg_kd,
+            ROUND(AVG(NULLIF(pms.rating, 0)), 2) as avg_rating
         FROM player_match_stats pms
         JOIN match_details md ON pms.match_id = md.match_id
         WHERE date(md.date_analyzed) >= date('{s2_start}')
@@ -191,6 +192,7 @@ def get_player_stats():
     # Merge K/D data with player data
     df = df.merge(kd_df, left_on='name', right_on='player_name', how='left')
     df['avg_kd'] = df['avg_kd'].fillna(1.0)  # Default to 1.0 if no matches
+    df['avg_rating'] = df['avg_rating'].fillna(1.0) # Default to 1.0
     df = df.drop('player_name', axis=1, errors='ignore')
     
     # Get W/D from matches
@@ -222,7 +224,7 @@ def get_player_stats():
     df['overall'] = (df['aim'] + df['util'] + df['team_play']) / 3
     
     conn.close()
-    return df.sort_values(by="avg_kd", ascending=False)
+    return df.sort_values(by="avg_rating", ascending=False)
 
 def get_player_secret(name):
     conn = sqlite3.connect('cs2_history.db')

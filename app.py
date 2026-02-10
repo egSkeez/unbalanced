@@ -64,7 +64,13 @@ if st.session_state.get("trigger_reroll", False):
     if "draft_pins" in st.session_state and st.session_state.draft_pins:
         force_captains = list(st.session_state.draft_pins.keys())
 
-    metric = "avg_kd" if st.session_state.get("draft_mode") == "kd_balanced" else "overall"
+    mode = st.session_state.get("draft_mode", "balanced")
+    if mode == "kd_balanced":
+        metric = "avg_kd"
+    elif mode == "hltv_balanced":
+        metric = "hltv"
+    else:
+        metric = "overall"
     roommates = get_roommates()
     all_combos = get_best_combinations(current_players, force_split=force_captains, force_together=roommates, metric=metric)
     ridx = random.randint(1, min(50, len(all_combos) - 1))

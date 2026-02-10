@@ -99,7 +99,10 @@ def render_trophies_tab():
                     if "$" in unit: fmt_val = f"${val:,.0f}"
                     trophies.append((title, icon, winner['player_name'], fmt_val, unit, grad, txt_color))
 
-        # 1. NEW: The Terminator (Most Kills)
+        # 0. NEW: MVP (Highest Rating)
+        add_s_trophy('avg_rating', "Season MVP", "⭐", "rating", "linear-gradient(135deg, #FFD700, #FDB931)", "#FFD700")
+
+        # 1. The Terminator (Most Kills)
         add_s_trophy('avg_kills', "The Terminator", "🤖", "kills/game", "linear-gradient(135deg, #2b5876, #4e4376)", "#a8c0ff")
         
         # 2. NEW: Iniesta (Most Assists)
@@ -133,6 +136,9 @@ def render_trophies_tab():
         # Find min winrate
         add_s_trophy('winrate', "3atba", "🧱", "% Win", "linear-gradient(135deg, #434343, #000000)", "#AAA", reverse=True)
         
+        # 7b. Least Impact (Lowest Rating)
+        add_s_trophy('avg_rating', "Least Impact", "📉", "rating", "linear-gradient(135deg, #232526, #414345)", "#999", reverse=True)
+        
         # 8. Clutch God (Total)
         if 'total_clutches' in df.columns and df['total_clutches'].sum() > 0:
             clutcher = df.loc[df['total_clutches'].idxmax()]
@@ -155,6 +161,7 @@ def render_trophies_tab():
         disp_df = disp_df.rename(columns={
             'player_name': 'Player',
             'matches_played': 'Matches',
+            'avg_rating': 'Rating',
             'avg_adr': 'ADR',
             'avg_hs_pct': 'HS%',
             'avg_assists': 'Ast/G',
@@ -163,14 +170,14 @@ def render_trophies_tab():
             'total_clutches': 'Clutches'
         })
         
-        cols_to_show = ['Player', 'Matches', 'Win%', 'KD', 'ADR', 'HS%', 'Ast/G', 'Ent/G', 'Clutches']
+        cols_to_show = ['Player', 'Matches', 'Win%', 'Rating', 'KD', 'ADR', 'HS%', 'Ast/G', 'Ent/G', 'Clutches']
         # Round floats
         for c in cols_to_show:
             if c in disp_df.columns and disp_df[c].dtype == 'float64':
                 disp_df[c] = disp_df[c].round(1)
 
         st.dataframe(
-            disp_df[cols_to_show].sort_values('KD', ascending=False),
+            disp_df[cols_to_show].sort_values('Rating', ascending=False),
             use_container_width=True,
             hide_index=True
         )
@@ -244,6 +251,7 @@ def render_trophies_tab():
                 pass
 
 
+        add_trophy("MVP", "⭐", "rating", "Rating", "linear-gradient(135deg, #FFD700, #FDB931)", "#FFD700")
         add_trophy("Entry King", "👑", "entry_kills", "Opens", "linear-gradient(135deg, #FFD700, #FDB931)", "#FFD700")
         add_trophy("First Death", "🩸", "entry_deaths", "Deaths", "linear-gradient(135deg, #FF416C, #FF4B2B)", "#FF4B2B")
         add_trophy("Master Baiter", "🎣", "rounds_last_alive", "Rounds", "linear-gradient(135deg, #00C6FF, #0072FF)", "#00C6FF")
@@ -269,6 +277,6 @@ def render_trophies_tab():
                 
         st.divider()
         st.subheader("📊 Match Details")
-        display_cols = ['player_name', 'kills', 'deaths', 'assists', 'adr', 'entry_kills', 'rounds_last_alive', 'total_spent', 'headshot_pct']
+        display_cols = ['player_name', 'rating', 'kills', 'deaths', 'assists', 'adr', 'entry_kills', 'rounds_last_alive', 'total_spent', 'headshot_pct']
         existing = [c for c in display_cols if c in df.columns]
-        st.dataframe(df[existing].sort_values('kills', ascending=False), use_container_width=True, hide_index=True)
+        st.dataframe(df[existing].sort_values('rating', ascending=False), use_container_width=True, hide_index=True)
