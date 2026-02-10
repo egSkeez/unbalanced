@@ -100,6 +100,7 @@ def render_stats_tab():
                         COUNT(*) as matches,
                         ROUND(AVG(pms.score), 1) as avg_score,
                         ROUND(AVG(pms.adr), 1) as avg_adr,
+                        ROUND(AVG(NULLIF(pms.rating, 0)), 2) as rating,
                         ROUND(SUM(pms.kills) * 1.0 / NULLIF(SUM(pms.deaths), 0), 2) as kd_ratio,
                         ROUND(AVG(NULLIF(pms.headshot_pct, 0)), 1) as avg_hs_pct,
                         SUM(pms.kills) as total_kills,
@@ -110,7 +111,7 @@ def render_stats_tab():
                     WHERE 1=1 {date_filter_sql}
                     GROUP BY pms.player_name
                     HAVING matches >= 1
-                    ORDER BY avg_adr DESC
+                    ORDER BY rating DESC
                 '''
                 leaderboard = pd.read_sql_query(leaderboard_query, conn, params=params)
                 conn.close()
@@ -121,7 +122,7 @@ def render_stats_tab():
                     valid = leaderboard['Matches'] > 0
                     leaderboard.loc[valid, 'Winrate'] = (leaderboard.loc[valid, 'wins'] / leaderboard.loc[valid, 'Matches'] * 100).round(1)
                     
-                    st.markdown("### 🥇 Top 5 Players (Season 2) - Sorted by ADR")
+                    st.markdown("### 🥇 Top 5 Players (Season 2) - Sorted by Rating")
                     eligible_top_5 = leaderboard[leaderboard['matches'] >= 2].head(5) # Lowered threshold to 2 for now
                     
                     if not eligible_top_5.empty:
@@ -139,20 +140,20 @@ def render_stats_tab():
                             <div style="background: {colors[idx]}; padding: 20px; border-radius: 15px; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
                                 <h2 style="color: white; margin: 0;">{medals[idx]} {player['player_name']}</h2>
                                 <p style="color: #f0f0f0; margin: 5px 0; font-size: 18px;">
-                                    ADR: {player['avg_adr']} | K/D: {player['kd_ratio']} | WR: {player['Winrate']}%
+                                    Rating: {player['rating']} | K/D: {player['kd_ratio']} | ADR: {player['avg_adr']}
                                 </p>
                             </div>
                             """, unsafe_allow_html=True)
                             col1, col2, col3, col4 = st.columns(4)
                             with col1: st.metric("Matches", int(player['matches']))
-                            with col2: st.metric("Total Kills", int(player['total_kills']))
-                            with col3: st.metric("Avg HS%", f"{player['avg_hs_pct']}%")
-                            with col4: st.metric("Winrate", f"{player['Winrate']}%")
+                            with col2: st.metric("Winrate", f"{player['Winrate']}%")
+                            with col3: st.metric("HS%", f"{player['avg_hs_pct']}%")
+                            with col4: st.metric("ADR", f"{player['avg_adr']}")
                             st.markdown("---")
                     
                     st.dataframe(
-                        leaderboard[['player_name', 'Matches', 'avg_score', 'kd_ratio', 'avg_adr', 'avg_hs_pct', 'Winrate']]
-                        .rename(columns={'player_name': 'Player', 'avg_score': 'Avg Score', 'kd_ratio': 'K/D', 'avg_adr': 'ADR', 'avg_hs_pct': 'HS%'}), 
+                        leaderboard[['player_name', 'Matches', 'rating', 'kd_ratio', 'avg_adr', 'avg_hs_pct', 'Winrate']]
+                        .rename(columns={'player_name': 'Player', 'rating': 'Rating', 'kd_ratio': 'K/D', 'avg_adr': 'ADR', 'avg_hs_pct': 'HS%'}), 
                         use_container_width=True, hide_index=True
                     )
                 else:
@@ -195,19 +196,22 @@ def render_stats_tab():
                 stats = get_player_aggregate_stats(selected_player, start_date=start_date, end_date=end_date)
                 if not stats.empty and stats['matches_played'].iloc[0] > 0:
                     winrate = stats['winrate_pct'].iloc[0]
+                    rating_val = stats['avg_rating'].iloc[0]
+                    rating_display = rating_val if pd.notna(rating_val) else 'N/A'
                     st.markdown(f"""
                     <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 15px; margin-bottom: 20px;">
                         <h1 style="color: white; margin: 0;">{selected_player}</h1>
                         <p style="color: #e0e0e0; margin: 5px 0; font-size: 20px;">
-                            {int(stats['matches_played'].iloc[0])} Matches | 🏆 {winrate}% Winrate
+                            {int(stats['matches_played'].iloc[0])} Matches | 🏆 {winrate}% Winrate | ⭐ {rating_display} Rating
                         </p>
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    c1, c2, c3 = st.columns(3)
-                    with c1: st.metric("K/D", stats['overall_kd'].iloc[0])
-                    with c2: st.metric("ADR", stats['avg_adr'].iloc[0])
-                    with c3: st.metric("HS%", f"{stats['avg_hs_pct'].iloc[0]}%")
+                    c1, c2, c3, c4 = st.columns(4)
+                    with c1: st.metric("Rating 2.0", rating_display)
+                    with c2: st.metric("K/D", stats['overall_kd'].iloc[0])
+                    with c3: st.metric("ADR", stats['avg_adr'].iloc[0])
+                    with c4: st.metric("HS%", f"{stats['avg_hs_pct'].iloc[0]}%")
                     
                     st.divider()
                     
@@ -274,6 +278,7 @@ def render_stats_tab():
                             md.map as "Map",
                             md.score_t || '-' || md.score_ct as "Score",
                             pms.match_result as "Res",
+                            pms.rating as "Rating",
                             pms.kills as "K",
                             pms.deaths as "D",
                             pms.adr as "ADR",

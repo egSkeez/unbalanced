@@ -31,6 +31,7 @@ def init_match_stats_tables():
                   score INTEGER,
                   damage INTEGER,
                   adr REAL,
+                  rating REAL,
                   headshot_kills INTEGER,
                   headshot_pct REAL,
                   util_damage INTEGER,
@@ -65,7 +66,7 @@ def init_match_stats_tables():
     
     # Migrations for Extended Stats
     new_cols = ['total_spent', 'entry_kills', 'entry_deaths', 'clutch_wins', 'rounds_last_alive', 'team_flashed',
-                'flash_assists', 'bomb_plants', 'bomb_defuses', 'multi_kills', 'weapon_kills']
+                'flash_assists', 'bomb_plants', 'bomb_defuses', 'multi_kills', 'weapon_kills', 'rating']
     for col in new_cols:
         try:
             col_type = "TEXT" if "json" in col or "kills" in col and "entry" not in col else "INTEGER"
@@ -109,6 +110,66 @@ def is_lobby_already_analyzed(cybershoke_id):
     conn.close()
     
     return result is not None
+
+def calculate_hltv_rating(row, total_rounds):
+    """
+    Calculates HLTV Rating 1.0
+    Formula: (KillRating + 0.7 * SurvivalRating + MultiKillRating) / 2.7
+    Returns None if essential stats (MultiKills) are missing.
+    """
+    if total_rounds == 0:
+        return None
+        
+    kills = row.get('Kills', 0)
+    deaths = row.get('Deaths', 0)
+    
+    # 3. MultiKill Rating
+    # We need counts of 1k, 2k, 3k, 4k, 5k
+    mk = row.get('MultiKills', None)
+    if isinstance(mk, str):
+        import json
+        try:
+            loaded = json.loads(mk)
+            if isinstance(loaded, dict) and len(loaded) > 0:
+                mk = loaded
+            else:
+                mk = None
+        except:
+            mk = None
+    elif isinstance(mk, dict):
+        if len(mk) == 0:
+            mk = None
+    else:
+        mk = None
+    
+    # If MultiKills data is missing, we cannot compute a valid rating
+    if mk is None:
+        return None
+    
+    # 1. Kill Rating
+    kpr = kills / total_rounds
+    kill_rating = kpr / 0.679
+    
+    # 2. Survival Rating
+    survival_rate = (total_rounds - deaths) / total_rounds
+    survival_rating = survival_rate / 0.317
+            
+    # Counts
+    def get_cnt(d, k):
+        return int(d.get(str(k), 0)) + int(d.get(int(k), 0))
+
+    k1 = get_cnt(mk, 1)
+    k2 = get_cnt(mk, 2)
+    k3 = get_cnt(mk, 3)
+    k4 = get_cnt(mk, 4)
+    k5 = get_cnt(mk, 5)
+    
+    # Value = (1K + 4*2K + 9*3K + 16*4K + 25*5K) / Rounds
+    mk_val = (k1 + 4*k2 + 9*k3 + 16*k4 + 25*k5) / total_rounds
+    mk_rating = mk_val / 1.277
+    
+    rating = (kill_rating + 0.7 * survival_rating + mk_rating) / 2.7
+    return round(rating, 2)
 
 def save_match_stats(match_id, cybershoke_id, score_str, stats_df, map_name="Unknown", score_t=0, score_ct=0, force_overwrite=False):
     """
@@ -188,8 +249,8 @@ def save_match_stats(match_id, cybershoke_id, score_str, stats_df, map_name="Unk
                        damage, adr, headshot_kills, headshot_pct, util_damage, 
                        enemies_flashed, kd_ratio, player_team, match_result,
                        total_spent, entry_kills, entry_deaths, clutch_wins, rounds_last_alive, team_flashed,
-                       flash_assists, bomb_plants, bomb_defuses, multi_kills, weapon_kills)
-                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                       flash_assists, bomb_plants, bomb_defuses, multi_kills, weapon_kills, rating)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                    (match_id,
                     p_name,
                     p_steam,
@@ -217,7 +278,8 @@ def save_match_stats(match_id, cybershoke_id, score_str, stats_df, map_name="Unk
                     row.get('BombPlants', 0),
                     row.get('BombDefuses', 0),
                     multi_kills_json,
-                    weapon_kills_json
+                    weapon_kills_json,
+                    calculate_hltv_rating(row, total_rounds)
                     ))
     
     conn.commit()
@@ -269,6 +331,7 @@ def get_player_aggregate_stats(player_name, start_date=None, end_date=None):
             SUM(pms.deaths) as total_deaths,
             SUM(pms.assists) as total_assists,
             ROUND(AVG(pms.adr), 1) as avg_adr,
+            ROUND(AVG(NULLIF(pms.rating, 0)), 2) as avg_rating,
             ROUND(AVG(NULLIF(pms.headshot_pct, 0)), 1) as avg_hs_pct,
             ROUND(SUM(pms.kills) * 1.0 / NULLIF(SUM(pms.deaths), 0), 2) as overall_kd,
             
@@ -349,6 +412,7 @@ def get_season_stats_dump(start_date, end_date):
             SUM(pms.bomb_plants) as total_plants,
             SUM(pms.bomb_defuses) as total_defuses,
             AVG(pms.adr) as avg_adr,
+            AVG(NULLIF(pms.rating, 0)) as avg_rating,
             AVG(NULLIF(pms.headshot_pct, 0)) as avg_hs_pct,
             
             -- Winrate calc
@@ -437,7 +501,7 @@ def get_match_scoreboard(match_id):
         SELECT 
             player_name, player_team, 
             kills, deaths, assists, 
-            adr, headshot_pct, score,
+            adr, rating, headshot_pct, score,
             util_damage, flash_assists, enemies_flashed,
             entry_kills, entry_deaths,
             total_spent,

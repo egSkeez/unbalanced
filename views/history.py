@@ -39,17 +39,20 @@ def render_history_tab():
                 team_stats = stats[stats['player_team'] == team_id].copy()
                 
                 # Clean up display columns
-                display_cols = ['player_name', 'kills', 'deaths', 'assists', 'adr', 'util_damage', 'flash_assists', 'entry_kills']
+                display_cols = ['player_name', 'kills', 'deaths', 'assists', 'adr', 'rating', 'util_damage', 'flash_assists', 'entry_kills']
                 
                 with cols[i] if i < len(cols) else st.container():
                     team_name = "Terrorists" if team_id == 2 else "CTs" if team_id == 3 else f"Team {team_id}"
                     st.subheader(f"{team_name} ({len(team_stats)})")
                     
+                    display_df = team_stats[display_cols].copy()
+                    display_df['rating'] = display_df['rating'].fillna('—')
+                    
                     st.dataframe(
-                        team_stats[display_cols].style.format({
+                        display_df.style.format({
                             'adr': "{:.1f}",
                             'util_damage': "{:.0f}"
-                        }),
+                        }, na_rep='—'),
                         use_container_width=True,
                         hide_index=True
                     )
