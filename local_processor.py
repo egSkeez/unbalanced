@@ -105,12 +105,15 @@ def process_match_local(match_id, admin_name="Skeez", upload_url=None):
         p_data = row.to_dict()
         players_data.append(p_data)
 
+    lobby_url = f"https://cybershoke.net/match/{match_id}"
+    
     output_data = {
         "match_id": str(match_id),
         "map_name": map_name,
         "score_str": score_res,
         "score_t": score_t,
         "score_ct": score_ct,
+        "lobby_url": lobby_url,
         "player_stats": players_data
     }
     

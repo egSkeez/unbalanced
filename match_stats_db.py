@@ -91,6 +91,12 @@ def init_match_stats_tables():
     c.execute('''CREATE INDEX IF NOT EXISTS idx_cybershoke_id 
                  ON match_details(cybershoke_id)''')
 
+    # Migration: Add lobby_url column if not exists
+    try:
+        c.execute("ALTER TABLE match_details ADD COLUMN lobby_url TEXT")
+    except:
+        pass
+
     conn.commit()
     conn.close()
 
@@ -171,7 +177,7 @@ def calculate_hltv_rating(row, total_rounds):
     rating = (kill_rating + 0.7 * survival_rating + mk_rating) / 2.7
     return round(rating, 2)
 
-def save_match_stats(match_id, cybershoke_id, score_str, stats_df, map_name="Unknown", score_t=0, score_ct=0, force_overwrite=False):
+def save_match_stats(match_id, cybershoke_id, score_str, stats_df, map_name="Unknown", score_t=0, score_ct=0, force_overwrite=False, lobby_url=None):
     """
     Saves match statistics to the database.
     If a match with the same cybershoke_id already exists, skips saving unless force_overwrite=True.
@@ -200,6 +206,10 @@ def save_match_stats(match_id, cybershoke_id, score_str, stats_df, map_name="Unk
     
     total_rounds = score_t + score_ct
     
+    # Build lobby URL if not provided but cybershoke_id is available
+    if not lobby_url and cybershoke_id and cybershoke_id != 'manual':
+        lobby_url = f"https://cybershoke.net/match/{cybershoke_id}"
+    
     # Delete existing match first to ensure fresh timestamp (for overwrite case)
     c.execute("DELETE FROM match_details WHERE match_id = ?", (match_id,))
     
@@ -209,9 +219,9 @@ def save_match_stats(match_id, cybershoke_id, score_str, stats_df, map_name="Unk
     
     # Insert new match details with current timestamp
     c.execute('''INSERT INTO match_details 
-                 (match_id, cybershoke_id, map, score_t, score_ct, total_rounds)
-                 VALUES (?, ?, ?, ?, ?, ?)''',
-              (match_id, cybershoke_id, map_name, score_t, score_ct, total_rounds))
+                 (match_id, cybershoke_id, map, score_t, score_ct, total_rounds, lobby_url)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)''',
+              (match_id, cybershoke_id, map_name, score_t, score_ct, total_rounds, lobby_url))
     
     # Delete existing player stats for this match (if re-analyzing)
     c.execute("DELETE FROM player_match_stats WHERE match_id = ?", (match_id,))
