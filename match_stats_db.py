@@ -449,7 +449,7 @@ def get_season_stats_dump(start_date, end_date):
           AND date(md.date_analyzed) <= date(?)
           AND pms.rating IS NOT NULL
         GROUP BY pms.player_name
-        HAVING matches_played >= 1
+        HAVING matches_played >= 5
     '''
     
     df = pd.read_sql_query(query, conn, params=(start_date, end_date))
@@ -539,3 +539,69 @@ def get_match_scoreboard(match_id):
     df = pd.read_sql_query(query, conn, params=(str(match_id),))
     conn.close()
     return df
+def get_player_weapon_stats(player_name, start_date=None, end_date=None):
+    """
+    Get weapon-specific statistics (average kills per game) for a player.
+    """
+    import json
+    conn = sqlite3.connect('cs2_history.db')
+    
+    # 1. Try to find SteamID
+    c = conn.cursor()
+    c.execute("SELECT steamid FROM players WHERE name = ?", (player_name,))
+    row = c.fetchone()
+    steamid = row[0] if row else None
+    
+    if steamid:
+        where_clause = "WHERE (pms.steamid = ? OR pms.player_name = ?)"
+        params = [steamid, player_name]
+    else:
+        where_clause = "WHERE pms.player_name = ?"
+        params = [player_name]
+    
+    where_clause += " AND pms.rating IS NOT NULL"
+    
+    if start_date:
+        where_clause += " AND date(md.date_analyzed) >= date(?)"
+        params.append(str(start_date))
+    if end_date:
+        where_clause += " AND date(md.date_analyzed) <= date(?)"
+        params.append(str(end_date))
+        
+    query = f'''
+        SELECT pms.weapon_kills, COUNT(*) OVER() as total_matches
+        FROM player_match_stats pms
+        JOIN match_details md ON pms.match_id = md.match_id
+        {where_clause}
+    '''
+    
+    df = pd.read_sql_query(query, conn, params=params)
+    conn.close()
+    
+    if df.empty:
+        return []
+    
+    weapon_totals = {}
+    total_matches = int(df.iloc[0]['total_matches']) if not df.empty else 1
+    
+    for _, row in df.iterrows():
+        try:
+            w = json.loads(row['weapon_kills']) if row['weapon_kills'] else {}
+            if isinstance(w, dict):
+                for weapon, kills in w.items():
+                    weapon_totals[weapon] = weapon_totals.get(weapon, 0) + kills
+        except:
+            continue
+            
+    # Convert to list of dicts with averages
+    result = []
+    for weapon, total in weapon_totals.items():
+        result.append({
+            "weapon": weapon,
+            "total_kills": int(total),
+            "avg_kills": float(round(total / total_matches, 2))
+        })
+        
+    # Sort by avg_kills descending
+    result.sort(key=lambda x: x['avg_kills'], reverse=True)
+    return result

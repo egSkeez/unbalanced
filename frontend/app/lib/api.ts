@@ -1,0 +1,117 @@
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+async function fetchApi(path: string, options?: RequestInit) {
+    const res = await fetch(`${API_BASE}${path}`, {
+        ...options,
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(err.detail || res.statusText);
+    }
+    return res.json();
+}
+
+export const sendPing = (ping: number) => fetchApi('/api/ping', { method: 'POST', body: JSON.stringify({ ping }) });
+
+// Constants
+export const getConstants = () => fetchApi('/api/constants');
+export const getSeasons = () => fetchApi('/api/seasons');
+
+// Players
+export const getPlayers = () => fetchApi('/api/players');
+export const createPlayer = (data: { name: string; aim: number; util: number; team_play: number }) =>
+    fetchApi('/api/players', { method: 'POST', body: JSON.stringify(data) });
+export const updatePlayer = (name: string, data: { aim: number; util: number; team_play: number }) =>
+    fetchApi(`/api/players/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify(data) });
+export const deletePlayer = (name: string) =>
+    fetchApi(`/api/players/${encodeURIComponent(name)}`, { method: 'DELETE' });
+
+// Draft
+export const runDraft = (data: { selected_players: string[]; mode: string }, token?: string) =>
+    fetchApi('/api/draft', {
+        method: 'POST',
+        body: JSON.stringify(data),
+        headers: token ? { 'Authorization': `Bearer ${token}` } : undefined
+    });
+export const getDraftState = (token?: string) =>
+    fetchApi('/api/draft/state', token ? { headers: { 'Authorization': `Bearer ${token}` } } : undefined);
+export const stepInAsCaptain = (token: string) =>
+    fetchApi('/api/draft/step_in', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+export const rerollDraft = (data: { current_players: string[]; mode: string; force_captains?: string[] }, token?: string) =>
+    fetchApi('/api/draft/reroll', {
+        method: 'POST',
+        body: JSON.stringify(data),
+        headers: token ? { 'Authorization': `Bearer ${token}` } : undefined
+    });
+export const clearDraft = (token?: string) =>
+    fetchApi('/api/draft', {
+        method: 'DELETE',
+        headers: token ? { 'Authorization': `Bearer ${token}` } : undefined
+    });
+export const updateElo = (data: { team1: string[]; team2: string[]; name_a: string; name_b: string; winner_idx: number; map_name: string }) =>
+    fetchApi('/api/draft/elo', { method: 'POST', body: JSON.stringify(data) });
+
+// Veto
+export const getVetoState = () => fetchApi('/api/veto/state');
+export const initVeto = () => fetchApi('/api/veto/init', { method: 'POST' });
+export const vetoAction = (data: { map_name: string; acting_team: string }) =>
+    fetchApi('/api/veto/action', { method: 'POST', body: JSON.stringify(data) });
+
+// Votes
+export const getVotes = () => fetchApi('/api/votes');
+export const submitVote = (data: { token: string; vote: string }) =>
+    fetchApi('/api/votes', { method: 'POST', body: JSON.stringify(data) });
+export const getCaptainInfo = (token: string) => fetchApi(`/api/votes/${token}`);
+
+// Captain Auth
+export const captainLogin = (name: string) =>
+    fetchApi('/api/captain/login', { method: 'POST', body: JSON.stringify({ name }) });
+export const getCaptainState = (name: string) =>
+    fetchApi(`/api/captain/state?name=${encodeURIComponent(name)}`);
+
+// Leaderboard & Stats
+export const getLeaderboard = (season: string = 'Season 2 (Demos)') =>
+    fetchApi(`/api/leaderboard?season=${encodeURIComponent(season)}`);
+export const getPlayerStats = (name: string, season: string = 'Season 2 (Demos)') =>
+    fetchApi(`/api/players/${encodeURIComponent(name)}/stats?season=${encodeURIComponent(season)}`);
+export const getPlayerMatches = (name: string, season: string = 'Season 2 (Demos)') =>
+    fetchApi(`/api/players/${encodeURIComponent(name)}/matches?season=${encodeURIComponent(season)}`);
+export const getPlayerWeapons = (name: string, season: string = 'Season 2 (Demos)') =>
+    fetchApi(`/api/players/${encodeURIComponent(name)}/weapons?season=${encodeURIComponent(season)}`);
+
+// Trophies
+export const getSeasonTrophies = () => fetchApi('/api/trophies/season');
+export const getMatchTrophies = (matchId: string) => fetchApi(`/api/trophies/match/${encodeURIComponent(matchId)}`);
+
+// Matches
+export const getRecentMatches = (limit: number = 20) => fetchApi(`/api/matches/recent?limit=${limit}`);
+export const getMatchScoreboard = (matchId: string) => fetchApi(`/api/matches/${encodeURIComponent(matchId)}/scoreboard`);
+
+// Lobby
+export const getLobby = () => fetchApi('/api/lobby');
+export const createLobby = (adminName: string = 'Skeez') =>
+    fetchApi('/api/lobby/create', { method: 'POST', body: JSON.stringify({ admin_name: adminName }) });
+export const deleteLobby = () => fetchApi('/api/lobby', { method: 'DELETE' });
+
+// Discord
+export const broadcastToDiscord = (data: { name_a: string; team1: string[]; name_b: string; team2: string[]; maps: string; lobby_link: string }) =>
+    fetchApi('/api/discord/broadcast', { method: 'POST', body: JSON.stringify(data) });
+export const broadcastLobbyToDiscord = (link: string) =>
+    fetchApi(`/api/discord/lobby?link=${encodeURIComponent(link)}`, { method: 'POST' });
+
+// Admin - Lobbies
+export const getLobbyHistory = () => fetchApi('/api/lobbies');
+export const addLobbyRecord = (id: string) => fetchApi(`/api/lobbies/${id}`, { method: 'POST' });
+export const updateLobbyStatus = (id: string, has_demo?: number, status?: string) => {
+    const params = new URLSearchParams();
+    if (has_demo !== undefined) params.set('has_demo', String(has_demo));
+    if (status) params.set('status', status);
+    return fetchApi(`/api/lobbies/${id}/status?${params}`, { method: 'PUT' });
+};
+export const analyzeLobby = (id: string) => fetchApi(`/api/admin/analyze/${id}`, { method: 'POST' });
+
+// Roommates
+export const getRoommates = () => fetchApi('/api/roommates');
+export const setRoommates = (groups: string[][]) =>
+    fetchApi('/api/roommates', { method: 'POST', body: JSON.stringify({ groups }) });

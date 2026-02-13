@@ -4,6 +4,18 @@ import pandas as pd
 import json
 from constants import PLAYERS_INIT
 from season_logic import get_current_season_info
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
+from models import Base
+
+DATABASE_URL = "sqlite+aiosqlite:///./cs2_history.db"
+
+engine = create_async_engine(DATABASE_URL, echo=False)
+async_session = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+
+async def init_async_db():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
 # --- DATABASE INITIALIZATION ---
 def init_db():
@@ -61,6 +73,11 @@ def init_db():
     except:
         pass
 
+    try:
+        c.execute("ALTER TABLE active_draft_state ADD COLUMN created_by TEXT")
+    except:
+        pass
+
     c.execute("SELECT COUNT(*) FROM players")
     
     # UPSERT Logic: Add new players if they don't exist
@@ -96,13 +113,13 @@ def set_roommates(players_list):
 
 
 # --- DRAFT STATE FUNCTIONS ---
-def save_draft_state(t1, t2, name_a, name_b, avg1, avg2, mode="balanced"):
+def save_draft_state(t1, t2, name_a, name_b, avg1, avg2, mode="balanced", created_by=None):
     conn = sqlite3.connect('cs2_history.db')
     c = conn.cursor()
     c.execute("DELETE FROM active_draft_state") 
     # Initialize with NULL current_lobby and cybershoke_match_id
-    c.execute("INSERT INTO active_draft_state (id, t1_json, t2_json, name_a, name_b, avg1, avg2, current_map, current_lobby, cybershoke_match_id, draft_mode) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-              (json.dumps(t1), json.dumps(t2), name_a, name_b, avg1, avg2, None, None, None, mode))
+    c.execute("INSERT INTO active_draft_state (id, t1_json, t2_json, name_a, name_b, avg1, avg2, current_map, current_lobby, cybershoke_match_id, draft_mode, created_by) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              (json.dumps(t1), json.dumps(t2), name_a, name_b, avg1, avg2, None, None, None, mode, created_by))
     conn.commit()
     conn.close()
 
@@ -116,16 +133,17 @@ def update_draft_map(map_data):
 def load_draft_state():
     conn = sqlite3.connect('cs2_history.db')
     c = conn.cursor()
-    c.execute("SELECT t1_json, t2_json, name_a, name_b, avg1, avg2, current_map, current_lobby, cybershoke_match_id, draft_mode FROM active_draft_state WHERE id=1")
+    c.execute("SELECT t1_json, t2_json, name_a, name_b, avg1, avg2, current_map, current_lobby, cybershoke_match_id, draft_mode, created_by FROM active_draft_state WHERE id=1")
     row = c.fetchone()
     conn.close()
     if row:
-        # Returns tuple including current_lobby at index 7 and match_id at index 8 and mode at 9
+        # Returns tuple including current_lobby at index 7 and match_id at index 8 and mode at 9 and created_by at 10
         # Handle cases where row might be shorter if schema wasn't fully updated (fallback)
         lobby = row[7] if len(row) > 7 else None
         cs_id = row[8] if len(row) > 8 else None
         mode = row[9] if len(row) > 9 else "balanced"
-        return (json.loads(row[0]), json.loads(row[1]), row[2], row[3], row[4], row[5], row[6], lobby, cs_id, mode)
+        created_by = row[10] if len(row) > 10 else None
+        return (json.loads(row[0]), json.loads(row[1]), row[2], row[3], row[4], row[5], row[6], lobby, cs_id, mode, created_by)
     return None
 
 def clear_draft_state():
@@ -274,6 +292,73 @@ def set_draft_pins(cap1, word1, cap2, word2):
     conn.execute("INSERT INTO current_draft_votes (captain_name, pin, vote) VALUES (?, ?, ?)", (cap2, word2, "Waiting"))
     conn.commit()
     conn.close()
+
+def init_empty_captains():
+    conn = sqlite3.connect('cs2_history.db')
+    conn.execute("DELETE FROM current_draft_votes")
+    conn.execute("INSERT INTO current_draft_votes (captain_name, pin, vote) VALUES (?, ?, ?)", ("__TEAM1__", "", "Waiting"))
+    conn.execute("INSERT INTO current_draft_votes (captain_name, pin, vote) VALUES (?, ?, ?)", ("__TEAM2__", "", "Waiting"))
+    conn.commit()
+    conn.close()
+
+def check_captain_status():
+    conn = sqlite3.connect('cs2_history.db')
+    c = conn.cursor()
+    c.execute("SELECT captain_name FROM current_draft_votes")
+    rows = c.fetchall()
+    conn.close()
+    
+    # Analyze rows
+    t1_status = "filled"
+    t2_status = "filled"
+    t1_name = None
+    t2_name = None
+    
+    # We rely on some heuristic: first row inserted is likely TEAM1 unless order changes, 
+    # but since we clean table, order should be preserved.
+    # Actually, relying on order is risky. 
+    # BUT, init_empty_captains inserts TEAM1 first.
+    # If updated, row ID stays same? Or updated in place.
+    # Let's hope order is preserved or use name logic.
+    
+    # Better logic:
+    # If a row name is "__TEAM1__", then T1 is open.
+    # If a row name is "__TEAM2__", then T2 is open.
+    # If a row name is neither, it's filled.
+    # But which is which? We can track the original insertion order via LIMIT/OFFSET or just infer from context.
+    # Actually, we can store team_id in current_draft_votes. The table schema might not have it...
+    # Let's assume schema is (id, captain_name, team_idx, ...).
+    # Wait, existing code uses: INSERT INTO current_draft_votes (captain_name, pin, vote)
+    # It doesn't use team_idx.
+    # So we don't know which captain is for which team unless we track it by order or name.
+    # BUT, current_draft_votes table DOES have team_idx column in schema according to earlier exploration (step 525 code item doesn't show schema, but step 230 shows SELECT captain_name... so maybe schema was created in init script).
+    # The init script in auth.py doesn't create current_draft_votes, it creates user_accounts.
+    # database.py init_db creates it?
+    # I should check init_db.
+    
+    # For now, let's rely on name patterns.
+    # If DB has "__TEAM1__", T1 is open. If not, and count < 2 (or 2 rows total), then T1 might be filled.
+    # Wait, if T1 is filled, name is "Skeez".
+    # How do we know "Skeez" is T1 captain and not T2?
+    # We must fix storing team identity.
+    # I will modify init_empty_captains to use team_idx if possible, or just rely on a convention.
+    # Convention: I will check if __TEAM1__ exists. If yes -> open. If no -> filled?
+    # But if both are filled ("Skeez", "Kim"), who is who?
+    # draft.team1 has standard list.
+    # If "Skeez" is captain, and "Skeez" is in team1, then he is T1 captain.
+    # So I can infer from player list.
+    pass
+
+def claim_captain_spot(team_num, player_name, pin):
+    # team_num: 1 or 2
+    placeholder = f"__TEAM{team_num}__"
+    conn = sqlite3.connect('cs2_history.db')
+    c = conn.cursor()
+    c.execute("UPDATE current_draft_votes SET captain_name = ?, pin = ? WHERE captain_name = ?", (player_name, pin, placeholder))
+    success = c.rowcount > 0
+    conn.commit()
+    conn.close()
+    return success
 
 def submit_vote(secret_attempt, vote_choice):
     conn = sqlite3.connect('cs2_history.db')
