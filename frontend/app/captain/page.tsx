@@ -1,6 +1,11 @@
 'use client';
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { captainLogin, getCaptainState, submitVote, vetoAction, getConstants } from '../lib/api';
+import { useAuth } from '@/context/AuthContext';
+import { getPingColor } from '@/lib/utils';
+import {
+    getDraftState, getConstants, captainClaim,
+    getCaptainState, submitVote, vetoAction
+} from '../lib/api';
 
 interface DraftInfo {
     team1: string[];
@@ -27,30 +32,87 @@ interface CaptainSession {
     draft: DraftInfo | null;
     all_votes: Array<{ captain_name: string; vote: string; pin: string }>;
     veto: VetoInfo | null;
+    pings?: Record<string, number>;
 }
 
 export default function CaptainPage() {
-    const [name, setName] = useState('');
-    const [session, setSession] = useState<CaptainSession | null>(null);
+    const { user, token, loading: authLoading } = useAuth();
+
+    // Draft preview state (shown to everyone immediately)
+    const [draftState, setDraftState] = useState<any>(null);
+    const [draftLoading, setDraftLoading] = useState(true);
     const [constants, setConstants] = useState<{ map_pool: string[]; map_logos: Record<string, string> }>({ map_pool: [], map_logos: {} });
+
+    // Captain session state (only after stepping in)
+    const [session, setSession] = useState<CaptainSession | null>(null);
+    const [steppingIn, setSteppingIn] = useState(false);
     const [error, setError] = useState('');
-    const [loading, setLoading] = useState(false);
-    const [loginLoading, setLoginLoading] = useState(false);
+    const [actionLoading, setActionLoading] = useState(false);
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-    // Load constants once
+    // ─── LOAD DRAFT STATE + CONSTANTS ON MOUNT ───────────
     useEffect(() => {
-        getConstants().then(setConstants).catch(() => { });
-    }, []);
+        const loadDraft = async () => {
+            try {
+                const [draft, consts] = await Promise.all([
+                    getDraftState(token || undefined),
+                    getConstants()
+                ]);
+                if (draft.active) setDraftState(draft);
+                setConstants(consts);
+            } catch {
+                // No active draft
+            }
+            setDraftLoading(false);
+        };
+        loadDraft();
+    }, [token]);
 
-    // Poll for state updates when logged in
+    // ─── AUTO-RECOVER: If user is already a captain, restore their session ───
+    useEffect(() => {
+        if (authLoading || !user || session) return;
+        // Try to get existing captain state — if user already stepped in
+        getCaptainState(user.display_name)
+            .then(state => {
+                if (state?.pin) setSession(state);
+            })
+            .catch(() => {
+                // Not a captain yet — that's fine, they can step in later
+            });
+    }, [user, authLoading, session]);
+
+    // ─── POLL FOR STATE UPDATES ──────────────────────────
     const pollState = useCallback(async () => {
         if (!session) return;
         try {
             const state = await getCaptainState(session.captain_name);
+            // Check if a reroll happened: votes reset, our captain spot was wiped
+            const anyReroll = state.all_votes?.some((v: { vote: string }) => v.vote === 'Reroll');
+            if (anyReroll) {
+                // A reroll vote was cast — new teams are being generated
+                // Wait a moment then reset to draft preview
+                setTimeout(async () => {
+                    setSession(null);
+                    setError('');
+                    try {
+                        const draft = await getDraftState(token || undefined);
+                        if (draft.active) setDraftState(draft);
+                    } catch { /* ignore */ }
+                }, 1500);
+                return;
+            }
             setSession(prev => prev ? { ...prev, ...state } : null);
-        } catch { /* captain removed from draft */ }
-    }, [session]);
+        } catch {
+            // Captain no longer in votes table — reroll happened and spots were reset
+            setSession(null);
+            setError('');
+            try {
+                const draft = await getDraftState(token || undefined);
+                if (draft.active) setDraftState(draft);
+                else setDraftState(null);
+            } catch { /* ignore */ }
+        }
+    }, [session, token]);
 
     useEffect(() => {
         if (!session) return;
@@ -58,37 +120,66 @@ export default function CaptainPage() {
         return () => { if (pollRef.current) clearInterval(pollRef.current); };
     }, [session, pollState]);
 
-    const handleLogin = async () => {
-        if (!name.trim()) return;
-        setLoginLoading(true);
+    // Also poll draft state while viewing (before stepping in) so it stays fresh
+    useEffect(() => {
+        if (session || draftLoading) return;
+        const interval = setInterval(async () => {
+            try {
+                const draft = await getDraftState(token || undefined);
+                if (draft.active) setDraftState(draft);
+                else setDraftState(null);
+            } catch { /* ignore */ }
+        }, 3000);
+        return () => clearInterval(interval);
+    }, [session, draftLoading, token]);
+
+    // ─── STEP IN AS CAPTAIN ──────────────────────────────
+    const handleStepIn = async () => {
+        if (!user) return;
+        setSteppingIn(true);
         setError('');
         try {
-            const res = await captainLogin(name.trim());
-            // Now get full state
-            const state = await getCaptainState(res.captain_name);
+            // Claim captain spot + get full state in one call (no JWT needed)
+            const state = await captainClaim(user.display_name);
             setSession(state);
         } catch (e: unknown) {
-            setError(e instanceof Error ? e.message : 'Login failed');
+            setError(e instanceof Error ? e.message : 'Could not step in as captain');
         }
-        setLoginLoading(false);
+        setSteppingIn(false);
     };
 
+    // ─── VOTE (Approve / Reroll) ─────────────────────────
     const handleVote = async (vote: string) => {
         if (!session) return;
-        setLoading(true);
+        setActionLoading(true);
+        setError('');
         try {
             await submitVote({ token: session.pin, vote });
+            if (vote === 'Reroll') {
+                // Reroll auto-generates new teams — reset session, load new draft
+                setTimeout(async () => {
+                    setSession(null);
+                    try {
+                        const draft = await getDraftState(token || undefined);
+                        if (draft.active) setDraftState(draft);
+                    } catch { /* ignore */ }
+                    setActionLoading(false);
+                }, 1000);
+                return;
+            }
             const state = await getCaptainState(session.captain_name);
             setSession(state);
         } catch (e: unknown) {
             setError(e instanceof Error ? e.message : 'Vote failed');
         }
-        setLoading(false);
+        setActionLoading(false);
     };
 
+    // ─── VETO (Map Pick/Ban) ─────────────────────────────
     const handleVetoPick = async (mapName: string) => {
         if (!session || !session.veto) return;
-        setLoading(true);
+        setActionLoading(true);
+        setError('');
         try {
             await vetoAction({ map_name: mapName, acting_team: session.veto.turn_team });
             const state = await getCaptainState(session.captain_name);
@@ -96,263 +187,345 @@ export default function CaptainPage() {
         } catch (e: unknown) {
             setError(e instanceof Error ? e.message : 'Veto action failed');
         }
-        setLoading(false);
+        setActionLoading(false);
     };
 
-    // ─── LOGIN SCREEN ────────────────────────
-    if (!session) {
+    // ─── LOADING ─────────────────────────────────────────
+    if (authLoading || draftLoading) {
         return (
             <div className="page-container">
-                <div style={{ maxWidth: 440, margin: '80px auto', textAlign: 'center' }}>
-                    <div style={{ fontSize: 64, marginBottom: 16 }}>👑</div>
-                    <h1 className="page-title" style={{ marginBottom: 8 }}>Captain Login</h1>
-                    <p className="page-subtitle" style={{ marginBottom: 32 }}>Enter your player name to join the draft</p>
-
-                    <input
-                        className="input"
-                        type="text"
-                        placeholder="Your name (e.g. Skeez)"
-                        value={name}
-                        onChange={e => setName(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && handleLogin()}
-                        style={{ marginBottom: 16, fontSize: 16, textAlign: 'center' }}
-                        autoFocus
-                    />
-                    <button
-                        className="btn btn-primary btn-block"
-                        onClick={handleLogin}
-                        disabled={loginLoading || !name.trim()}
-                        style={{ fontSize: 16, padding: '14px 0' }}
-                    >
-                        {loginLoading ? '⏳ Logging in...' : '⚡ JOIN AS CAPTAIN'}
-                    </button>
-                    {error && (
-                        <div style={{ marginTop: 16, padding: '12px 16px', background: 'rgba(255,68,68,0.1)', border: '1px solid rgba(255,68,68,0.3)', borderRadius: 'var(--radius-md)', color: 'var(--red)' }}>
-                            {error}
-                        </div>
-                    )}
-                </div>
+                <div className="loading-spinner"><div className="spinner" /></div>
             </div>
         );
     }
 
-    // ─── CAPTAIN DASHBOARD ───────────────────
-    const draft = session.draft;
-    if (!draft) {
+    // ─── NO ACTIVE DRAFT ─────────────────────────────────
+    if (!draftState) {
         return (
             <div className="page-container">
                 <div style={{ textAlign: 'center', padding: 60 }}>
                     <div style={{ fontSize: 48, marginBottom: 16 }}>⏳</div>
-                    <h2 style={{ fontFamily: 'Orbitron', marginBottom: 8 }}>Waiting for Draft</h2>
-                    <p style={{ color: 'var(--text-secondary)' }}>No active draft found. The host needs to start it first.</p>
-                    <button className="btn" onClick={() => setSession(null)} style={{ marginTop: 24 }}>← Back to Login</button>
+                    <h2 className="font-orbitron" style={{ marginBottom: 8 }}>No Active Draft</h2>
+                    <p style={{ color: 'var(--text-secondary)' }}>There&apos;s no draft running right now. Check back when the host starts one.</p>
                 </div>
             </div>
         );
     }
 
-    const myTeamName = draft.team1.includes(session.captain_name) ? draft.name_a : draft.name_b;
-    const myTeam = draft.team1.includes(session.captain_name) ? draft.team1 : draft.team2;
-    const oppTeam = draft.team1.includes(session.captain_name) ? draft.team2 : draft.team1;
-    const oppTeamName = myTeamName === draft.name_a ? draft.name_b : draft.name_a;
-    const myColor = myTeamName === draft.name_a ? 'var(--blue)' : 'var(--orange)';
-    const oppColor = myTeamName === draft.name_a ? 'var(--orange)' : 'var(--blue)';
-    const total = draft.avg1 + draft.avg2;
-    const pct1 = total > 0 ? (draft.avg1 / total) * 100 : 50;
+    // ─── CAPTAIN DASHBOARD (after stepping in) ───────────
+    if (session && session.draft) {
+        const draft = session.draft;
+        const myTeamName = draft.team1.includes(session.captain_name) ? draft.name_a : draft.name_b;
+        const myTeam = draft.team1.includes(session.captain_name) ? draft.team1 : draft.team2;
+        const oppTeam = draft.team1.includes(session.captain_name) ? draft.team2 : draft.team1;
+        const oppTeamName = myTeamName === draft.name_a ? draft.name_b : draft.name_a;
+        const myColor = myTeamName === draft.name_a ? 'var(--blue)' : 'var(--orange)';
+        const oppColor = myTeamName === draft.name_a ? 'var(--orange)' : 'var(--blue)';
+        const total = draft.avg1 + draft.avg2;
+        const pct1 = total > 0 ? (draft.avg1 / total) * 100 : 50;
 
-    // Check all votes status
-    const allVotes = session.all_votes || [];
-    const bothApproved = allVotes.length === 2 && allVotes.every(v => v.vote === 'Approve');
-    const anyReroll = allVotes.some(v => v.vote === 'Reroll');
-    const otherCaptain = allVotes.find(v => v.captain_name !== session.captain_name);
-    const isMyTurn = session.veto && session.veto.turn_team === myTeamName;
+        const allVotes = session.all_votes || [];
+        const bothApproved = allVotes.length === 2 && allVotes.every(v => v.vote === 'Approve');
+        const anyReroll = allVotes.some(v => v.vote === 'Reroll');
+        const otherCaptain = allVotes.find(v => v.captain_name !== session.captain_name);
+        const isMyTurn = session.veto && session.veto.turn_team === myTeamName;
+
+        return (
+            <div className="page-container">
+                {/* Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+                    <div>
+                        <h1 className="page-title">👑 {session.captain_name}</h1>
+                        <p className="page-subtitle">Captain of <span style={{ color: myColor, fontWeight: 700 }}>{myTeamName}</span></p>
+                    </div>
+                    <button className="btn btn-sm" onClick={() => setSession(null)}>← Leave</button>
+                </div>
+
+                {error && <div className="error-message">{error}</div>}
+
+                {/* Team comparison bar */}
+                <div style={{ marginBottom: 24 }}>
+                    <div className="comparison-labels">
+                        <span className="text-blue">{draft.name_a} — {draft.avg1.toFixed(1)}</span>
+                        <span className="text-orange">{draft.name_b} — {draft.avg2.toFixed(1)}</span>
+                    </div>
+                    <div className="comparison-bar">
+                        <div className="comparison-bar-fill-blue" style={{ width: `${pct1}%` }} />
+                        <div className="comparison-bar-fill-orange" style={{ width: `${100 - pct1}%` }} />
+                    </div>
+                </div>
+
+                {/* Teams side by side */}
+                <div className="grid-2" style={{ marginBottom: 32 }}>
+                    <div className="card" style={{ border: `2px solid ${myColor}` }}>
+                        <div className="team-header" style={{ color: myColor, borderColor: myColor }}>
+                            👑 {myTeamName} (YOUR TEAM)
+                        </div>
+                        {myTeam.map(p => (
+                            <div key={p} className={`player-chip ${p === session.captain_name ? 'selected' : ''}`}>
+                                {p === session.captain_name && <span className="player-chip-crown">👑</span>}
+                                <span style={{ fontWeight: p === session.captain_name ? 700 : 500 }}>{p}</span>
+                                {session.pings?.[p] != null && (
+                                    <span style={{ fontSize: 10, color: getPingColor(session.pings[p]), marginLeft: 'auto' }}>
+                                        {session.pings[p]}ms
+                                    </span>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                    <div className="card">
+                        <div className="team-header" style={{ color: oppColor, borderColor: oppColor }}>
+                            {oppTeamName}
+                        </div>
+                        {oppTeam.map(p => (
+                            <div key={p} className="player-chip">
+                                <span>{p}</span>
+                                {session.pings?.[p] != null && (
+                                    <span style={{ fontSize: 10, color: getPingColor(session.pings[p]), marginLeft: 'auto' }}>
+                                        {session.pings[p]}ms
+                                    </span>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* ─── PHASE 1: VOTING (Approve/Reroll) ─── */}
+                {session.current_vote === 'Waiting' && !anyReroll && (
+                    <div className="card" style={{ textAlign: 'center', padding: 32, marginBottom: 32, border: '2px solid var(--gold)' }}>
+                        <h2 className="font-orbitron" style={{ fontSize: 20, color: 'var(--gold)', marginBottom: 8 }}>⚖️ APPROVE THESE TEAMS?</h2>
+                        <p style={{ color: 'var(--text-secondary)', marginBottom: 20 }}>Both captains must approve to proceed to map veto</p>
+
+                        {otherCaptain && (
+                            <div style={{ marginBottom: 20, padding: '8px 16px', background: 'var(--bg-glass)', borderRadius: 'var(--radius-md)', display: 'inline-block' }}>
+                                {otherCaptain.vote === 'Waiting' ? (
+                                    <span style={{ color: 'var(--text-muted)' }}>⏳ {otherCaptain.captain_name} hasn&apos;t voted yet</span>
+                                ) : otherCaptain.vote === 'Approve' ? (
+                                    <span className="text-neon">✅ {otherCaptain.captain_name} approved</span>
+                                ) : (
+                                    <span style={{ color: 'var(--red)' }}>❌ {otherCaptain.captain_name} wants a reroll</span>
+                                )}
+                            </div>
+                        )}
+
+                        <div className="grid-2">
+                            <button className="btn btn-primary btn-block" onClick={() => handleVote('Approve')} disabled={actionLoading} style={{ minHeight: 56, fontSize: 16 }}>
+                                ✅ APPROVE
+                            </button>
+                            <button className="btn btn-danger btn-block" onClick={() => handleVote('Reroll')} disabled={actionLoading} style={{ minHeight: 56, fontSize: 16 }}>
+                                ❌ REROLL
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Waiting for other captain to vote */}
+                {session.current_vote === 'Approve' && !bothApproved && !anyReroll && (
+                    <div className="card" style={{ textAlign: 'center', padding: 32, marginBottom: 32 }}>
+                        <div style={{ fontSize: 40, marginBottom: 12 }}>✅</div>
+                        <h3 className="font-orbitron text-neon" style={{ marginBottom: 8 }}>YOU APPROVED</h3>
+                        <p style={{ color: 'var(--text-secondary)' }}>
+                            ⏳ Waiting for <strong>{otherCaptain?.captain_name}</strong> to approve...
+                        </p>
+                        <div className="spinner" style={{ margin: '16px auto' }} />
+                    </div>
+                )}
+
+                {/* Reroll requested */}
+                {anyReroll && (
+                    <div className="card" style={{ textAlign: 'center', padding: 32, marginBottom: 32, border: '2px solid var(--red)' }}>
+                        <div style={{ fontSize: 40, marginBottom: 12 }}>🔄</div>
+                        <h3 className="font-orbitron" style={{ color: 'var(--red)', marginBottom: 8 }}>REROLLING...</h3>
+                        <p style={{ color: 'var(--text-secondary)' }}>New teams are being generated. You&apos;ll need to step in again.</p>
+                        <div className="spinner" style={{ margin: '16px auto' }} />
+                    </div>
+                )}
+
+                {/* ─── PHASE 2: VETO (Map Pick/Ban) ─── */}
+                {bothApproved && !session.veto && !draft.map_pick && (
+                    <div className="card" style={{ textAlign: 'center', padding: 32, marginBottom: 32 }}>
+                        <div style={{ fontSize: 40, marginBottom: 12 }}>🪙</div>
+                        <h3 className="font-orbitron text-gold" style={{ marginBottom: 8 }}>BOTH APPROVED!</h3>
+                        <p style={{ color: 'var(--text-secondary)' }}>Waiting for the host to start the coin flip &amp; veto...</p>
+                        <div className="spinner" style={{ margin: '16px auto' }} />
+                    </div>
+                )}
+
+                {/* Active Veto */}
+                {session.veto && !session.veto.complete && session.veto.remaining.length > 0 && (
+                    <div className="card" style={{ marginBottom: 32, border: isMyTurn ? '2px solid var(--neon-green)' : '1px solid var(--border)' }}>
+                        <div className={`veto-turn-indicator ${isMyTurn
+                            ? ((session.veto.protected?.length || 0) < 2 ? 'veto-turn-protect' : 'veto-turn-ban')
+                            : 'veto-turn-waiting'
+                            }`}>
+                            {isMyTurn ? (
+                                (session.veto.protected?.length || 0) < 2
+                                    ? '🛡️ YOUR TURN — PROTECT A MAP'
+                                    : '❌ YOUR TURN — BAN A MAP'
+                            ) : (
+                                `⏳ ${session.veto.turn_team} is choosing...`
+                            )}
+                        </div>
+
+                        {/* Show protected maps */}
+                        {session.veto.protected && session.veto.protected.length > 0 && (
+                            <div style={{ display: 'flex', gap: 8, marginBottom: 16, justifyContent: 'center' }}>
+                                {session.veto.protected.map(m => (
+                                    <div key={m} className="protected-map-badge">
+                                        🛡️ {m}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Map grid */}
+                        <div className="grid-7">
+                            {constants.map_pool.map(m => {
+                                const isRemaining = session.veto!.remaining.includes(m);
+                                const isProtected = session.veto!.protected?.includes(m);
+                                const isBanned = !isRemaining && !isProtected;
+                                const canClick = isMyTurn && isRemaining && !isProtected;
+
+                                return (
+                                    <div
+                                        key={m}
+                                        className={`map-card ${isBanned ? 'banned' : ''} ${isProtected ? 'protected' : ''}`}
+                                        onClick={() => canClick ? handleVetoPick(m) : null}
+                                        style={{ cursor: canClick ? 'pointer' : 'default', opacity: actionLoading && canClick ? 0.5 : undefined }}
+                                    >
+                                        <img src={constants.map_logos[m]} alt={m} />
+                                        <div className="map-card-name">{m}</div>
+                                        {isBanned && <div className="banned-overlay">BANNED</div>}
+                                        {isProtected && <div style={{ position: 'absolute', top: 4, right: 4, fontSize: 18 }}>🛡️</div>}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+
+                {/* ─── PHASE 3: VETO COMPLETE / MAP SELECTED ─── */}
+                {(session.veto?.complete || draft.map_pick) && (
+                    <div className="lobby-box" style={{ marginBottom: 32 }}>
+                        <div className="lobby-box-title">🗺️ MAP SELECTED</div>
+                        <div className="font-orbitron text-gold" style={{ fontSize: 28, fontWeight: 800, marginBottom: 16 }}>
+                            {draft.map_pick || session.veto?.protected?.join(', ')}
+                        </div>
+                        {(draft.map_pick || '').split(',').map(m => (
+                            <img key={m.trim()} src={constants.map_logos[m.trim()]} alt={m.trim()} style={{ width: '100%', maxWidth: 300, borderRadius: 8, marginTop: 8 }} />
+                        ))}
+                        <p style={{ color: 'var(--text-secondary)', marginTop: 16 }}>🎮 Get ready to play!</p>
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    // ─── DRAFT PREVIEW (before stepping in as captain) ───
+    const draft = draftState;
+    const userTeam = user ? (
+        draft.team1?.includes(user.display_name) ? draft.name_a :
+            draft.team2?.includes(user.display_name) ? draft.name_b : null
+    ) : null;
+    const total = (draft.avg1 || 0) + (draft.avg2 || 0);
+    const pct1 = total > 0 ? ((draft.avg1 || 0) / total) * 100 : 50;
 
     return (
         <div className="page-container">
-            {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-                <div>
-                    <h1 className="page-title">👑 {session.captain_name}</h1>
-                    <p className="page-subtitle">Captain of <span style={{ color: myColor, fontWeight: 700 }}>{myTeamName}</span></p>
-                </div>
-                <button className="btn btn-sm" onClick={() => setSession(null)}>← Logout</button>
+            <div className="page-header">
+                <h1 className="page-title">⚔️ Live Draft</h1>
+                <p className="page-subtitle">
+                    {userTeam
+                        ? <>You&apos;re on <span style={{ fontWeight: 700, color: userTeam === draft.name_a ? 'var(--blue)' : 'var(--orange)' }}>{userTeam}</span></>
+                        : 'View the current draft teams'
+                    }
+                </p>
             </div>
 
-            {error && <div style={{ padding: '12px 16px', background: 'rgba(255,68,68,0.1)', border: '1px solid rgba(255,68,68,0.3)', borderRadius: 'var(--radius-md)', color: 'var(--red)', marginBottom: 16 }}>{error}</div>}
+            {error && <div className="error-message" style={{ marginBottom: 16 }}>{error}</div>}
 
-            {/* Team comparison bar */}
+            {/* Comparison bar */}
             <div style={{ marginBottom: 24 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: 'var(--text-secondary)' }}>
-                    <span style={{ color: 'var(--blue)' }}>{draft.name_a} — {draft.avg1.toFixed(1)}</span>
-                    <span style={{ color: 'var(--orange)' }}>{draft.name_b} — {draft.avg2.toFixed(1)}</span>
+                <div className="comparison-labels">
+                    <span className="text-blue">{draft.name_a} — {Number(draft.avg1).toFixed(1)}</span>
+                    <span className="text-orange">{draft.name_b} — {Number(draft.avg2).toFixed(1)}</span>
                 </div>
                 <div className="comparison-bar">
                     <div className="comparison-bar-fill-blue" style={{ width: `${pct1}%` }} />
-                    <div className="comparison-bar-fill-orange" style={{ width: `${100 - pct1}%` }} />
+                    <div className="comparison-bar-fill-orange" style={{ width: `${pct1 < 100 ? 100 - pct1 : 50}%` }} />
                 </div>
             </div>
 
-            {/* Teams side by side */}
+            {/* Team cards */}
             <div className="grid-2" style={{ marginBottom: 32 }}>
-                <div className="card" style={{ border: `2px solid ${myColor}` }}>
-                    <div className="team-header" style={{ color: myColor, borderColor: myColor }}>
-                        👑 {myTeamName} (YOUR TEAM)
-                    </div>
-                    {myTeam.map(p => (
-                        <div key={p} className="player-chip" style={{ background: p === session.captain_name ? 'rgba(0,229,0,0.08)' : undefined }}>
-                            {p === session.captain_name && <span style={{ fontSize: 16 }}>👑</span>}
-                            <span style={{ fontWeight: p === session.captain_name ? 700 : 500 }}>{p}</span>
-                        </div>
-                    ))}
-                </div>
-                <div className="card">
-                    <div className="team-header" style={{ color: oppColor, borderColor: oppColor }}>
-                        {oppTeamName}
-                    </div>
-                    {oppTeam.map(p => (
-                        <div key={p} className="player-chip">
-                            <span>{p}</span>
-                        </div>
-                    ))}
-                </div>
-            </div>
-
-            {/* ─── PHASE 1: VOTING (Approve/Reroll) ─── */}
-            {session.current_vote === 'Waiting' && !anyReroll && (
-                <div className="card" style={{ textAlign: 'center', padding: 32, marginBottom: 32, border: '2px solid var(--gold)' }}>
-                    <h2 style={{ fontFamily: 'Orbitron', fontSize: 20, color: 'var(--gold)', marginBottom: 8 }}>⚖️ APPROVE THESE TEAMS?</h2>
-                    <p style={{ color: 'var(--text-secondary)', marginBottom: 20 }}>Both captains must approve to proceed to map veto</p>
-
-                    {otherCaptain && (
-                        <div style={{ marginBottom: 20, padding: '8px 16px', background: 'var(--bg-glass)', borderRadius: 'var(--radius-md)', display: 'inline-block' }}>
-                            {otherCaptain.vote === 'Waiting' ? (
-                                <span style={{ color: 'var(--text-muted)' }}>⏳ {otherCaptain.captain_name} hasn&apos;t voted yet</span>
-                            ) : otherCaptain.vote === 'Approve' ? (
-                                <span style={{ color: 'var(--neon-green)' }}>✅ {otherCaptain.captain_name} approved</span>
-                            ) : (
-                                <span style={{ color: 'var(--red)' }}>❌ {otherCaptain.captain_name} wants a reroll</span>
+                <div className="card" style={userTeam === draft.name_a ? { border: '2px solid var(--blue)' } : {}}>
+                    <div className="team-header team-blue">🔵 {draft.name_a}</div>
+                    {draft.team1?.map((p: string) => (
+                        <div key={p} className={`player-chip ${user?.display_name === p ? 'selected' : ''}`}>
+                            <span style={{ fontWeight: user?.display_name === p ? 700 : 500 }}>
+                                {user?.display_name === p ? '👤 ' : ''}{p}
+                            </span>
+                            {draft.pings?.[p] != null && (
+                                <span style={{ fontSize: 10, color: getPingColor(draft.pings[p]), marginLeft: 'auto' }}>
+                                    {draft.pings[p]}ms
+                                </span>
                             )}
                         </div>
-                    )}
-
-                    <div className="grid-2">
-                        <button className="btn btn-primary btn-block" onClick={() => handleVote('Approve')} disabled={loading} style={{ minHeight: 56, fontSize: 16 }}>
-                            ✅ APPROVE
-                        </button>
-                        <button className="btn btn-danger btn-block" onClick={() => handleVote('Reroll')} disabled={loading} style={{ minHeight: 56, fontSize: 16 }}>
-                            ❌ REROLL
-                        </button>
-                    </div>
-                </div>
-            )}
-
-            {/* Waiting for other captain to vote */}
-            {session.current_vote === 'Approve' && !bothApproved && !anyReroll && (
-                <div className="card" style={{ textAlign: 'center', padding: 32, marginBottom: 32 }}>
-                    <div style={{ fontSize: 40, marginBottom: 12 }}>✅</div>
-                    <h3 style={{ fontFamily: 'Orbitron', color: 'var(--neon-green)', marginBottom: 8 }}>YOU APPROVED</h3>
-                    <p style={{ color: 'var(--text-secondary)' }}>
-                        ⏳ Waiting for <strong>{otherCaptain?.captain_name}</strong> to approve...
-                    </p>
-                    <div className="spinner" style={{ margin: '16px auto' }} />
-                </div>
-            )}
-
-            {/* Reroll requested */}
-            {anyReroll && (
-                <div className="card" style={{ textAlign: 'center', padding: 32, marginBottom: 32, border: '2px solid var(--red)' }}>
-                    <div style={{ fontSize: 40, marginBottom: 12 }}>🔄</div>
-                    <h3 style={{ fontFamily: 'Orbitron', color: 'var(--red)', marginBottom: 8 }}>REROLL REQUESTED</h3>
-                    <p style={{ color: 'var(--text-secondary)' }}>The host is generating new teams. Please wait...</p>
-                    <div className="spinner" style={{ margin: '16px auto' }} />
-                </div>
-            )}
-
-            {/* ─── PHASE 2: VETO (Map Pick/Ban) ─── */}
-            {bothApproved && !session.veto && !draft.map_pick && (
-                <div className="card" style={{ textAlign: 'center', padding: 32, marginBottom: 32 }}>
-                    <div style={{ fontSize: 40, marginBottom: 12 }}>🪙</div>
-                    <h3 style={{ fontFamily: 'Orbitron', color: 'var(--gold)', marginBottom: 8 }}>BOTH APPROVED!</h3>
-                    <p style={{ color: 'var(--text-secondary)' }}>Waiting for the host to start the coin flip &amp; veto...</p>
-                    <div className="spinner" style={{ margin: '16px auto' }} />
-                </div>
-            )}
-
-            {/* Active Veto */}
-            {session.veto && !session.veto.complete && session.veto.remaining.length > 0 && (
-                <div className="card" style={{ marginBottom: 32, border: isMyTurn ? '2px solid var(--neon-green)' : '1px solid var(--border)' }}>
-                    <div style={{
-                        padding: '12px 20px',
-                        borderRadius: 'var(--radius-sm)',
-                        marginBottom: 20,
-                        textAlign: 'center',
-                        fontSize: 18,
-                        fontFamily: 'Orbitron',
-                        fontWeight: 700,
-                        background: isMyTurn
-                            ? ((session.veto.protected?.length || 0) < 2 ? 'rgba(0,229,0,0.15)' : 'rgba(255,68,68,0.15)')
-                            : 'var(--bg-glass)',
-                        color: isMyTurn
-                            ? ((session.veto.protected?.length || 0) < 2 ? 'var(--neon-green)' : 'var(--red)')
-                            : 'var(--text-muted)',
-                    }}>
-                        {isMyTurn ? (
-                            (session.veto.protected?.length || 0) < 2
-                                ? '🛡️ YOUR TURN — PROTECT A MAP'
-                                : '❌ YOUR TURN — BAN A MAP'
-                        ) : (
-                            `⏳ ${session.veto.turn_team} is choosing...`
-                        )}
-                    </div>
-
-                    {/* Show protected maps */}
-                    {session.veto.protected && session.veto.protected.length > 0 && (
-                        <div style={{ display: 'flex', gap: 8, marginBottom: 16, justifyContent: 'center' }}>
-                            {session.veto.protected.map(m => (
-                                <div key={m} style={{ padding: '6px 14px', background: 'rgba(0,229,0,0.1)', border: '1px solid rgba(0,229,0,0.3)', borderRadius: 'var(--radius-sm)', color: 'var(--neon-green)', fontSize: 13, fontWeight: 600 }}>
-                                    🛡️ {m}
-                                </div>
-                            ))}
-                        </div>
-                    )}
-
-                    {/* Map grid */}
-                    <div className="grid-7">
-                        {constants.map_pool.map(m => {
-                            const isRemaining = session.veto!.remaining.includes(m);
-                            const isProtected = session.veto!.protected?.includes(m);
-                            const isBanned = !isRemaining && !isProtected;
-                            const canClick = isMyTurn && isRemaining && !isProtected;
-
-                            return (
-                                <div
-                                    key={m}
-                                    className={`map-card ${isBanned ? 'banned' : ''} ${isProtected ? 'protected' : ''}`}
-                                    onClick={() => canClick ? handleVetoPick(m) : null}
-                                    style={{ cursor: canClick ? 'pointer' : 'default', opacity: loading && canClick ? 0.5 : undefined }}
-                                >
-                                    <img src={constants.map_logos[m]} alt={m} />
-                                    <div className="map-card-name">{m}</div>
-                                    {isBanned && <div className="banned-overlay">BANNED</div>}
-                                    {isProtected && <div style={{ position: 'absolute', top: 4, right: 4, fontSize: 18 }}>🛡️</div>}
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-            )}
-
-            {/* ─── PHASE 3: VETO COMPLETE / MAP SELECTED ─── */}
-            {(session.veto?.complete || draft.map_pick) && (
-                <div className="lobby-box" style={{ marginBottom: 32 }}>
-                    <div className="lobby-box-title">🗺️ MAP SELECTED</div>
-                    <div style={{ fontSize: 28, fontWeight: 800, fontFamily: 'Orbitron', color: 'var(--gold)', marginBottom: 16 }}>
-                        {draft.map_pick || session.veto?.protected?.join(', ')}
-                    </div>
-                    {(draft.map_pick || '').split(',').map(m => (
-                        <img key={m.trim()} src={constants.map_logos[m.trim()]} alt={m.trim()} style={{ width: '100%', maxWidth: 300, borderRadius: 8, marginTop: 8 }} />
                     ))}
-                    <p style={{ color: 'var(--text-secondary)', marginTop: 16 }}>🎮 Get ready to play!</p>
+                </div>
+                <div className="card" style={userTeam === draft.name_b ? { border: '2px solid var(--orange)' } : {}}>
+                    <div className="team-header team-orange">🔴 {draft.name_b}</div>
+                    {draft.team2?.map((p: string) => (
+                        <div key={p} className={`player-chip ${user?.display_name === p ? 'selected' : ''}`}>
+                            <span style={{ fontWeight: user?.display_name === p ? 700 : 500 }}>
+                                {user?.display_name === p ? '👤 ' : ''}{p}
+                            </span>
+                            {draft.pings?.[p] != null && (
+                                <span style={{ fontSize: 10, color: getPingColor(draft.pings[p]), marginLeft: 'auto' }}>
+                                    {draft.pings[p]}ms
+                                </span>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* Step In as Captain button */}
+            {user && userTeam && (
+                <div className="card" style={{ maxWidth: 480, margin: '0 auto', textAlign: 'center', padding: 32 }}>
+                    <div style={{ fontSize: 48, marginBottom: 12 }}>👑</div>
+                    <h2 className="font-orbitron" style={{ fontSize: 18, marginBottom: 8 }}>Become Captain</h2>
+                    <p style={{ color: 'var(--text-secondary)', marginBottom: 24, fontSize: '0.9rem' }}>
+                        Step in as captain for <strong style={{ color: userTeam === draft.name_a ? 'var(--blue)' : 'var(--orange)' }}>{userTeam}</strong> to approve teams and pick maps
+                    </p>
+                    <button
+                        className="btn btn-primary btn-block"
+                        onClick={handleStepIn}
+                        disabled={steppingIn}
+                        style={{ fontSize: 16, padding: '14px 0' }}
+                    >
+                        {steppingIn ? '⏳ Stepping in...' : '👑 STEP IN AS CAPTAIN'}
+                    </button>
+                </div>
+            )}
+
+            {/* Not in this draft */}
+            {user && !userTeam && (
+                <div className="card" style={{ maxWidth: 480, margin: '0 auto', textAlign: 'center', padding: 32, opacity: 0.7 }}>
+                    <div style={{ fontSize: 36, marginBottom: 8 }}>👁️</div>
+                    <p style={{ color: 'var(--text-secondary)' }}>
+                        You&apos;re not in this draft — viewing as spectator
+                    </p>
+                </div>
+            )}
+
+            {/* Not logged in */}
+            {!user && (
+                <div className="card" style={{ maxWidth: 480, margin: '0 auto', textAlign: 'center', padding: 32, opacity: 0.7 }}>
+                    <div style={{ fontSize: 36, marginBottom: 8 }}>🔑</div>
+                    <p style={{ color: 'var(--text-secondary)' }}>
+                        Sign in to step in as captain
+                    </p>
                 </div>
             )}
         </div>

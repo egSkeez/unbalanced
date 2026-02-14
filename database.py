@@ -23,8 +23,13 @@ if not DATABASE_URL_SYNC:
     pass
 
 # Ensure Async URL has correct driver
-if DATABASE_URL_SYNC and DATABASE_URL_SYNC.startswith("postgresql://"):
-    DATABASE_URL_ASYNC = DATABASE_URL_SYNC.replace("postgresql://", "postgresql+asyncpg://", 1)
+if DATABASE_URL_SYNC:
+    if DATABASE_URL_SYNC.startswith("postgresql://"):
+        DATABASE_URL_ASYNC = DATABASE_URL_SYNC.replace("postgresql://", "postgresql+asyncpg://", 1)
+    elif DATABASE_URL_SYNC.startswith("postgres://"):
+         DATABASE_URL_ASYNC = DATABASE_URL_SYNC.replace("postgres://", "postgresql+asyncpg://", 1)
+    else:
+        DATABASE_URL_ASYNC = DATABASE_URL_SYNC # Fallback
 else:
     DATABASE_URL_ASYNC = "sqlite+aiosqlite:///./cs2_history.db"
 

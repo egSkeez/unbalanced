@@ -61,7 +61,6 @@ export default function MixerPage() {
   const { user, token, loading: authLoading } = useAuth();
   const router = useRouter();
 
-  // Redirect unauthorized users
   useEffect(() => {
     if (authLoading) return;
     if (!user) {
@@ -72,7 +71,7 @@ export default function MixerPage() {
       const isCreator = draft.created_by && user.display_name === draft.created_by;
       const isAdmin = user.role === 'admin';
       if (!isCreator && !isAdmin) {
-        router.push('/profile?tab=live');
+        router.push('/captain');
       }
     }
   }, [user, draft, authLoading, router]);
@@ -95,7 +94,6 @@ export default function MixerPage() {
       .catch(e => { setError(e.message); setLoading(false); });
   }, []);
 
-  // Poll state (Draft or Players)
   useEffect(() => {
     const poll = setInterval(async () => {
       try {
@@ -107,18 +105,15 @@ export default function MixerPage() {
             setDraft(d);
             if (d.lobby_link) setLobbyLink(d.lobby_link);
           } else {
-            setDraft(null); // Draft ended
+            setDraft(null);
           }
         } else {
-          // Poll players to update pings
           const p = await getPlayers();
           setPlayers(p);
-
-          // Also check if draft started remotely
           const d = await getDraftState();
           if (d.active) {
             setDraft(d);
-            setConstants(await getConstants()); // Refresh constants just in case
+            setConstants(await getConstants());
           }
         }
       } catch { /* ignore */ }
@@ -137,9 +132,6 @@ export default function MixerPage() {
     setLoading(true);
     try {
       const activeToken = token || Cookies.get('token');
-      console.log("Draft Token Status:", !!activeToken, activeToken ? "Exists" : "Missing");
-
-      // Attempt draft even if token is missing to get real 401
       const result = await runDraft({ selected_players: selected, mode }, activeToken);
       setDraft({ active: true, ...result });
       setError('');
@@ -169,8 +161,6 @@ export default function MixerPage() {
   const handleClear = async () => {
     const activeToken = token || Cookies.get('token');
     if (activeToken) await clearDraft(activeToken);
-    // If clear fails due to auth, we still reset local state? 
-    // Maybe better to only reset on success, but prompt implies 'force clear'.
     setDraft(null);
     setVeto(null);
     setSelected([]);
@@ -259,13 +249,13 @@ export default function MixerPage() {
           <p className="page-subtitle">Mode: {(draft.mode || 'balanced').replace('_', ' ').toUpperCase()}</p>
         </div>
 
-        {error && <div style={{ color: 'var(--red)', marginBottom: 16 }}>{error}</div>}
+        {error && <div className="error-message">{error}</div>}
 
         {/* Team comparison bar */}
         <div style={{ marginBottom: 24 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: 'var(--text-secondary)' }}>
-            <span style={{ color: 'var(--blue)' }}>{draft.name_a} — {draft.avg1.toFixed(1)}</span>
-            <span style={{ color: 'var(--orange)' }}>{draft.name_b} — {draft.avg2.toFixed(1)}</span>
+          <div className="comparison-labels">
+            <span className="text-blue">{draft.name_a} — {draft.avg1.toFixed(1)}</span>
+            <span className="text-orange">{draft.name_b} — {draft.avg2.toFixed(1)}</span>
           </div>
           <div className="comparison-bar">
             <div className="comparison-bar-fill-blue" style={{ width: `${pct1}%` }} />
@@ -290,24 +280,19 @@ export default function MixerPage() {
             const isTeam1 = teamNum === 1;
             const teamName = isTeam1 ? draft.name_a : draft.name_b;
             const rawPlayers = isTeam1 ? draft.team1 : draft.team2;
-            const players = rawPlayers ? [...rawPlayers].sort((a, b) => (draft.ratings?.[b] || 0) - (draft.ratings?.[a] || 0)) : [];
-            const color = isTeam1 ? 'var(--blue)' : 'var(--orange)';
+            const teamPlayers = rawPlayers ? [...rawPlayers].sort((a, b) => (draft.ratings?.[b] || 0) - (draft.ratings?.[a] || 0)) : [];
             const colorClass = isTeam1 ? 'team-blue' : 'team-orange';
 
             return (
               <div key={teamNum} className="card">
                 <div className={`team-header ${colorClass}`}>{isTeam1 ? '🔵' : '🔴'} {teamName}</div>
-                {players.map((p, idx) => {
+                {teamPlayers.map((p, idx) => {
                   const rating = draft.ratings?.[p] || 0;
                   return (
                     <div
                       key={`${draft.active}-${p}`}
                       className="player-chip stagger-in"
-                      style={{
-                        animationDelay: `${idx * 0.1}s`,
-                        justifyContent: 'space-between',
-                        cursor: 'pointer'
-                      }}
+                      style={{ animationDelay: `${idx * 0.1}s`, justifyContent: 'space-between', cursor: 'pointer' }}
                       onClick={() => setViewingPlayer(p)}
                       title="Click for stats"
                     >
@@ -321,7 +306,7 @@ export default function MixerPage() {
                         )}
                         <span style={{ fontSize: 10, opacity: 0.5 }}>📊</span>
                       </div>
-                      <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'Orbitron' }}>
+                      <span className="font-orbitron" style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                         {rating.toFixed(2)}
                       </span>
                     </div>
@@ -378,7 +363,7 @@ export default function MixerPage() {
         {(veto?.complete || draft.map_pick) && (
           <div className="lobby-box" style={{ marginBottom: 32 }}>
             <div className="lobby-box-title">🗺️ MAP SELECTED</div>
-            <div style={{ fontSize: 24, fontWeight: 800, fontFamily: 'Orbitron', color: 'var(--gold)', marginBottom: 16 }}>
+            <div className="font-orbitron text-gold" style={{ fontSize: 24, fontWeight: 800, marginBottom: 16 }}>
               {draft.map_pick || veto?.protected?.join(', ')}
             </div>
             {draft.map_pick && (
@@ -396,7 +381,7 @@ export default function MixerPage() {
           <div className="lobby-box" style={{ marginBottom: 24 }}>
             <div className="lobby-box-title">🚀 LOBBY READY</div>
             <div className="lobby-box-link">
-              <a href={lobbyLink} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--neon-green)' }}>{lobbyLink}</a>
+              <a href={lobbyLink} target="_blank" rel="noopener noreferrer">{lobbyLink}</a>
             </div>
             <div className="lobby-box-password">🔑 Password: kimkim</div>
             <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
@@ -428,7 +413,7 @@ export default function MixerPage() {
         <p className="page-subtitle">Select 10 players and choose a balancing mode</p>
       </div>
 
-      {error && <div style={{ color: 'var(--red)', marginBottom: 16 }}>{error}</div>}
+      {error && <div className="error-message">{error}</div>}
 
       {/* Draft mode selector */}
       <div className="card" style={{ marginBottom: 24, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -497,12 +482,6 @@ export default function MixerPage() {
 
       {/* Draft button */}
       <div style={{ textAlign: 'center' }}>
-        {/* DEBUG INFO */}
-        <div style={{ fontSize: 10, color: '#555', marginBottom: 5 }}>
-          Debug: Token is {token ? `Present (${token.substring(0, 5)}...)` : 'Missing in Context'} |
-          Cookie is {Cookies.get('token') ? 'Present' : 'Missing'}
-        </div>
-
         <button
           className="btn btn-primary"
           disabled={selected.length !== 10}

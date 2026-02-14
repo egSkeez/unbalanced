@@ -6,6 +6,7 @@ import { getPingColor } from '@/lib/utils';
 
 const NAV_ITEMS = [
     { href: '/', icon: '🎮', label: 'Mixer & Draft' },
+    { href: '/tournaments', icon: '🏟️', label: '1v1 Tournaments' },
     { href: '/stats', icon: '📊', label: 'Stats' },
     { href: '/trophies', icon: '🏆', label: 'Trophies' },
     { href: '/history', icon: '📜', label: 'History' },
@@ -17,7 +18,6 @@ export default function Sidebar() {
     const pathname = usePathname();
     const { user } = useAuth();
 
-    // Hide sidebar on mobile vote pages
     if (pathname.startsWith('/vote')) return null;
 
     return (
@@ -47,18 +47,11 @@ export default function Sidebar() {
                 })}
             </nav>
 
-            {/* Live Draft Indicator */}
             {user?.in_draft && (
                 <div style={{ padding: '0 12px', marginBottom: 12 }}>
                     <Link
-                        href="/profile?tab=live"
-                        className={`nav-item ${pathname === '/profile' ? 'active' : ''}`}
-                        style={{
-                            background: 'rgba(255, 0, 0, 0.1)',
-                            border: '1px solid rgba(255, 0, 0, 0.3)',
-                            color: 'var(--red)',
-                            animation: 'pulse 2s infinite'
-                        }}
+                        href="/captain"
+                        className={`nav-item live-draft-indicator ${pathname === '/captain' ? 'active' : ''}`}
                     >
                         <span className="nav-item-icon">{user.is_captain ? '👑' : '🔴'}</span>
                         <span className="nav-item-label" style={{ fontWeight: 700 }}>Live Draft</span>
@@ -66,20 +59,13 @@ export default function Sidebar() {
                 </div>
             )}
 
-            {/* Auth section */}
-            <div style={{ padding: '16px 12px', borderTop: '1px solid var(--border)', marginTop: 'auto' }}>
+            <div className="sidebar-user-section">
                 {user ? (
                     <Link
                         href="/profile"
                         className={`nav-item ${pathname === '/profile' ? 'active' : ''}`}
-                        style={{ marginBottom: 0 }}
                     >
-                        <span style={{
-                            width: 28, height: 28, borderRadius: '50%',
-                            background: user.role === 'admin' ? 'linear-gradient(135deg, var(--gold), #ff8c00)' : 'linear-gradient(135deg, var(--neon-green), #00a0ff)',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: 12, fontWeight: 800, color: '#000', flexShrink: 0,
-                        }}>
+                        <span className={`user-avatar ${user.role === 'admin' ? 'user-avatar-admin' : 'user-avatar-user'}`}>
                             {user.display_name[0]?.toUpperCase()}
                         </span>
                         <span className="nav-item-label" style={{ fontWeight: 600 }}>
@@ -95,7 +81,6 @@ export default function Sidebar() {
                     <Link
                         href="/login"
                         className={`nav-item ${pathname === '/login' ? 'active' : ''}`}
-                        style={{ marginBottom: 0 }}
                     >
                         <span className="nav-item-icon">🔑</span>
                         <span className="nav-item-label">Sign In</span>

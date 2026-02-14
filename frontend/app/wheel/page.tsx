@@ -114,31 +114,28 @@ export default function WheelPage() {
             <div className="grid-2" style={{ alignItems: 'start' }}>
                 {/* Wheel */}
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                    <div style={{ position: 'relative', width: 400, height: 400 }}>
-                        {/* Arrow */}
-                        <div style={{
-                            position: 'absolute', top: '50%', right: -20, transform: 'translateY(-50%)',
-                            width: 0, height: 0, borderTop: '20px solid transparent', borderBottom: '20px solid transparent',
-                            borderRight: '40px solid #FFD700', zIndex: 10,
-                        }} />
+                    <div className="wheel-container">
+                        <div className="wheel-arrow" />
                         <canvas
                             ref={canvasRef}
                             width={600}
                             height={600}
-                            style={{ width: '100%', height: '100%', transform: 'rotate(-90deg)' }}
+                            className="wheel-canvas"
                         />
                     </div>
 
                     {winner && (
-                        <div style={{
-                            marginTop: 20, fontFamily: 'Orbitron', fontSize: 28, color: 'var(--neon-green)',
-                            textShadow: '0 0 10px var(--neon-green)', textAlign: 'center',
-                        }}>
+                        <div className="wheel-winner">
                             🎉 {winner}
                         </div>
                     )}
 
-                    <button className="btn btn-primary" onClick={spin} disabled={spinning || names.length === 0} style={{ marginTop: 20, fontSize: 18, padding: '14px 48px' }}>
+                    <button
+                        className="btn btn-primary"
+                        onClick={spin}
+                        disabled={spinning || names.length === 0}
+                        style={{ marginTop: 20, fontSize: 18, padding: '14px 48px' }}
+                    >
                         {spinning ? '⏳ Spinning...' : '🎰 SPIN'}
                     </button>
                 </div>

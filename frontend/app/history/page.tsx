@@ -48,7 +48,7 @@ export default function HistoryPage() {
                                     </div>
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                                    <div style={{ fontFamily: 'Orbitron', fontSize: 20, fontWeight: 700 }}>{String(m.score)}</div>
+                                    <div className="font-orbitron" style={{ fontSize: 20, fontWeight: 700 }}>{String(m.score)}</div>
                                     {m.lobby_url && (
                                         <a href={String(m.lobby_url)} target="_blank" rel="noopener noreferrer" className="btn btn-sm" onClick={e => e.stopPropagation()}>
                                             🔗 Lobby
@@ -77,7 +77,7 @@ export default function HistoryPage() {
                                                             <td>{String(p.deaths)}</td>
                                                             <td>{String(p.assists)}</td>
                                                             <td>{Number(p.adr || 0).toFixed(1)}</td>
-                                                            <td style={{ color: 'var(--neon-green)', fontWeight: 700 }}>{Number(p.rating || 0).toFixed(2)}</td>
+                                                            <td className="text-neon" style={{ fontWeight: 700 }}>{Number(p.rating || 0).toFixed(2)}</td>
                                                         </tr>
                                                     ))}
                                                 </tbody>
@@ -99,7 +99,7 @@ export default function HistoryPage() {
                                                             <td>{String(p.deaths)}</td>
                                                             <td>{String(p.assists)}</td>
                                                             <td>{Number(p.adr || 0).toFixed(1)}</td>
-                                                            <td style={{ color: 'var(--neon-green)', fontWeight: 700 }}>{Number(p.rating || 0).toFixed(2)}</td>
+                                                            <td className="text-neon" style={{ fontWeight: 700 }}>{Number(p.rating || 0).toFixed(2)}</td>
                                                         </tr>
                                                     ))}
                                                 </tbody>

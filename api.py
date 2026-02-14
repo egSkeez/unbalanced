@@ -11,13 +11,18 @@ import random
 import json
 import sqlite3
 import os
+import requests
 
 from auth import (
     init_user_accounts, create_access_token, get_current_user, get_current_user_optional,
     get_db, hash_password, verify_password
 )
-from models import User
+from models import User, Tournament, TournamentParticipant, TournamentMatch
 from schemas import UserCreate, UserLogin, UserOut, Token
+from tournament_logic import (
+    generate_single_elimination_bracket, advance_winner,
+    build_bracket_response, serialize_tournament
+)
 
 # In-memory store for player pings (username -> ms)
 PLAYER_PINGS: Dict[str, float] = {}
@@ -53,6 +58,14 @@ async def lifespan(app: FastAPI):
     check_and_migrate() # Legacy Sync
     await init_async_db() # New Async
     await init_user_accounts() # New Async
+    # Migrate tournament table (add new columns if missing)
+    try:
+        conn = sqlite3.connect('cs2_history.db')
+        conn.execute("ALTER TABLE tournaments ADD COLUMN tournament_date TEXT")
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass  # column already exists
     yield
     # Shutdown
     pass
@@ -145,6 +158,19 @@ class RegisterRequest(BaseModel):
 
 class GoogleLoginRequest(BaseModel):
     credential: str  # Google ID token
+
+class TournamentCreateRequest(BaseModel):
+    name: str
+    prize_image_url: Optional[str] = None
+    prize_name: Optional[str] = None
+    max_players: int = 8  # 4, 8, 16, or 32
+    tournament_date: Optional[str] = None  # e.g. "2026-03-15"
+
+class AdvanceWinnerRequest(BaseModel):
+    winner_id: str
+
+class TournamentLobbyRequest(BaseModel):
+    admin_name: str = "Skeez"
 
 # ──────────────────────────────────────────────
 # PING ENDPOINT
@@ -758,19 +784,42 @@ def vote_status():
 @app.post("/api/votes")
 def submit_captain_vote(req: VoteRequest):
     submit_vote(req.token, req.vote)
-    
+
     # Check consensus to auto-start veto
     votes_df = get_vote_status()
     approve_count = 0
+    reroll_detected = False
     if not votes_df.empty:
         for _, r in votes_df.iterrows():
             if r['vote'] == 'Approve':
                 approve_count += 1
             elif r['vote'] == 'Reroll':
-                # If anyone rerolls, approval count effectively resets or invalidates?
-                # But reroll endpoint resets votes table anyway.
-                # So if we see 'Reroll' here, it's stale or handled elsewhere.
-                pass
+                reroll_detected = True
+
+    # Auto-reroll: if any captain voted Reroll, automatically generate new teams
+    if reroll_detected:
+        saved = load_draft_state()
+        if saved:
+            t1_old, t2_old, n_a, n_b, a1_old, a2_old, db_map, lobby, mid, mode, original_creator = saved
+            all_players = t1_old + t2_old
+            player_df = get_player_stats()
+
+            if mode == "kd_balanced":
+                metric = "avg_kd"
+            elif mode == "hltv_balanced":
+                metric = "hltv"
+            else:
+                metric = "overall"
+
+            roommates = get_roommates()
+            all_combos = get_best_combinations(all_players, force_split=[], force_together=roommates, metric=metric)
+            ridx = random.randint(1, min(50, len(all_combos) - 1))
+            t1, t2, a1, a2, gap = all_combos[ridx]
+
+            save_draft_state(t1, t2, n_a, n_b, a1, a2, mode=mode, created_by=original_creator)
+            init_empty_captains()
+
+        return {"status": "ok", "rerolled": True}
 
     if approve_count >= 2:
         rem, _, _ = get_veto_state()
@@ -778,10 +827,9 @@ def submit_captain_vote(req: VoteRequest):
             saved = load_draft_state()
             if saved:
                 _, _, n_a, n_b, *_ = saved
-                import random
                 winner = random.choice([n_a, n_b])
                 init_veto_state(MAP_POOL.copy(), winner)
-                
+
     return {"status": "ok"}
 
 @app.post("/api/captain/login")
@@ -809,6 +857,91 @@ def captain_login(req: CaptainLoginRequest):
         "draft": draft_data,
     }
 
+@app.post("/api/captain/claim")
+def captain_claim(req: CaptainLoginRequest):
+    """Claim a captain spot by player name. Checks player is in draft, claims the spot, returns full state."""
+    import uuid
+    name = req.name.strip()
+
+    saved = load_draft_state()
+    if not saved:
+        raise HTTPException(400, "No active draft")
+    t1, t2, n_a, n_b, a1, a2, db_map, lobby, mid, mode, created_by = saved
+
+    # Determine which team this player is on
+    team_num = None
+    if name in t1:
+        team_num = 1
+    elif name in t2:
+        team_num = 2
+    else:
+        raise HTTPException(403, "You are not in this draft")
+
+    # Check if banned from captaincy (rerolled)
+    conn = sqlite3.connect('cs2_history.db')
+    c = conn.cursor()
+    c.execute("SELECT 1 FROM current_draft_votes WHERE captain_name=? AND vote='BANNED'", (name,))
+    if c.fetchone():
+        conn.close()
+        raise HTTPException(403, "You forfeited captaincy by rerolling")
+
+    # Check if already claimed (by this player)
+    c.execute("SELECT captain_name, pin, vote FROM current_draft_votes WHERE LOWER(captain_name) = LOWER(?)", (name,))
+    existing = c.fetchone()
+    conn.close()
+
+    if existing:
+        # Already a captain — just return their state
+        pass
+    else:
+        # Try to claim the spot
+        pin = str(uuid.uuid4())
+        success = claim_captain_spot(team_num, name, pin)
+        if not success:
+            raise HTTPException(409, "Captain spot already taken by another player")
+
+    # Return full captain state (same as /api/captain/state)
+    conn = sqlite3.connect('cs2_history.db')
+    c = conn.cursor()
+    c.execute("SELECT captain_name, pin, vote FROM current_draft_votes WHERE LOWER(captain_name) = LOWER(?)", (name,))
+    row = c.fetchone()
+    conn.close()
+
+    if not row:
+        raise HTTPException(500, "Failed to retrieve captain state after claim")
+
+    draft_data = {
+        "team1": t1, "team2": t2, "name_a": n_a, "name_b": n_b,
+        "avg1": a1, "avg2": a2, "map_pick": db_map,
+    }
+
+    votes_df = get_vote_status()
+    votes = df_to_records(votes_df) if not votes_df.empty else []
+
+    rem, prot, turn_team = get_veto_state()
+    veto_data = None
+    if rem is not None:
+        veto_data = {
+            "initialized": True,
+            "remaining": rem,
+            "protected": prot,
+            "turn_team": turn_team,
+            "complete": len(rem) == 0,
+        }
+
+    # Inject pings
+    pings = {name: p for name, p in PLAYER_PINGS.items()}
+
+    return {
+        "captain_name": row[0],
+        "pin": row[1],
+        "current_vote": row[2],
+        "draft": draft_data,
+        "all_votes": votes,
+        "veto": veto_data,
+        "pings": pings,
+    }
+
 @app.get("/api/captain/state")
 def captain_state(name: str = Query(...)):
     """Get full state for a captain: draft, vote status, veto status."""
@@ -824,7 +957,7 @@ def captain_state(name: str = Query(...)):
     saved = load_draft_state()
     draft_data = None
     if saved:
-        t1, t2, n_a, n_b, a1, a2, db_map, lobby, mid, mode = saved
+        t1, t2, n_a, n_b, a1, a2, db_map, lobby, mid, mode, created_by = saved
         draft_data = {
             "team1": t1, "team2": t2, "name_a": n_a, "name_b": n_b,
             "avg1": a1, "avg2": a2, "map_pick": db_map,
@@ -846,6 +979,9 @@ def captain_state(name: str = Query(...)):
             "complete": len(rem) == 0,
         }
 
+    # Inject pings
+    pings = {name: p for name, p in PLAYER_PINGS.items()}
+
     return {
         "captain_name": row[0],
         "pin": row[1],
@@ -853,6 +989,7 @@ def captain_state(name: str = Query(...)):
         "draft": draft_data,
         "all_votes": votes,
         "veto": veto_data,
+        "pings": pings,
     }
 
 @app.get("/api/votes/{token}")
@@ -1295,6 +1432,306 @@ async def upload_match(data: MatchUploadData):
         return {"status": "success", "message": f"Match {data.match_id} saved successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# ──────────────────────────────────────────────
+# CS2 SKIN IMAGE SEARCH (ByMykel CSGO-API)
+# ──────────────────────────────────────────────
+
+# In-memory cache for skins data (loaded once, reused)
+_SKINS_CACHE: List[Dict] = []
+_SKINS_CACHE_LOADED = False
+
+@app.get("/api/skins/search")
+async def search_skins(q: str = Query(..., min_length=2)):
+    """Search CS2 skins by name and return matching results with images."""
+    global _SKINS_CACHE, _SKINS_CACHE_LOADED
+
+    if not _SKINS_CACHE_LOADED:
+        try:
+            resp = requests.get(
+                "https://bymykel.github.io/CSGO-API/api/en/skins.json",
+                timeout=15,
+                allow_redirects=True,
+            )
+            if resp.status_code == 200:
+                _SKINS_CACHE = resp.json()
+                _SKINS_CACHE_LOADED = True
+            else:
+                raise HTTPException(502, "Failed to fetch skins database")
+        except requests.RequestException as e:
+            raise HTTPException(502, f"Failed to fetch skins database: {e}")
+
+    query = q.lower().strip()
+    results = []
+    for skin in _SKINS_CACHE:
+        skin_name = skin.get("name", "")
+        if query in skin_name.lower():
+            results.append({
+                "name": skin_name,
+                "image": skin.get("image", ""),
+                "rarity": skin.get("rarity", {}).get("name", ""),
+                "rarity_color": skin.get("rarity", {}).get("color", ""),
+            })
+            if len(results) >= 20:
+                break
+
+    return results
+
+
+# ──────────────────────────────────────────────
+# TOURNAMENTS
+# ──────────────────────────────────────────────
+
+@app.get("/api/tournaments")
+async def list_tournaments(
+    status: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """List tournaments, optionally filtered by status (open, active, completed)."""
+    query = select(Tournament).order_by(Tournament.created_at.desc())
+    if status:
+        query = query.filter(Tournament.status == status)
+    result = await db.execute(query)
+    tournaments = result.scalars().all()
+    return [serialize_tournament(t) for t in tournaments]
+
+
+@app.post("/api/tournaments")
+async def create_tournament(
+    req: TournamentCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin-only: Create a new tournament."""
+    if current_user.role != "admin":
+        raise HTTPException(403, "Only admins can create tournaments")
+    if req.max_players not in (4, 8, 16, 32):
+        raise HTTPException(400, "max_players must be 4, 8, 16, or 32")
+
+    tournament = Tournament(
+        name=req.name,
+        prize_image_url=req.prize_image_url,
+        prize_name=req.prize_name,
+        max_players=req.max_players,
+        tournament_date=req.tournament_date,
+        created_by=current_user.id,
+    )
+    db.add(tournament)
+    await db.commit()
+    await db.refresh(tournament)
+    return serialize_tournament(tournament)
+
+
+@app.get("/api/tournaments/{tournament_id}")
+async def get_tournament(tournament_id: str, db: AsyncSession = Depends(get_db)):
+    """Get tournament details including participant list."""
+    result = await db.execute(select(Tournament).filter(Tournament.id == tournament_id))
+    tournament = result.scalars().first()
+    if not tournament:
+        raise HTTPException(404, "Tournament not found")
+
+    data = serialize_tournament(tournament)
+    data["participants"] = [
+        {
+            "id": p.id,
+            "user_id": p.user.id if p.user else p.user_id,
+            "username": p.user.username if p.user else "Unknown",
+            "display_name": p.user.display_name if p.user else "Unknown",
+            "seed": p.seed,
+        }
+        for p in (tournament.participants or [])
+    ]
+    return data
+
+
+@app.post("/api/tournaments/{tournament_id}/join")
+async def join_tournament(
+    tournament_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Authenticated user joins an open tournament. Auto-generates bracket when full."""
+    result = await db.execute(select(Tournament).filter(Tournament.id == tournament_id))
+    tournament = result.scalars().first()
+    if not tournament:
+        raise HTTPException(404, "Tournament not found")
+    if tournament.status != "open":
+        raise HTTPException(400, "Tournament is not open for enrollment")
+
+    # Check if already joined
+    result = await db.execute(
+        select(TournamentParticipant).filter(
+            TournamentParticipant.tournament_id == tournament_id,
+            TournamentParticipant.user_id == current_user.id,
+        )
+    )
+    if result.scalars().first():
+        raise HTTPException(400, "Already enrolled in this tournament")
+
+    # Check capacity
+    result = await db.execute(
+        select(TournamentParticipant).filter(
+            TournamentParticipant.tournament_id == tournament_id
+        )
+    )
+    current_count = len(result.scalars().all())
+    if current_count >= tournament.max_players:
+        raise HTTPException(400, "Tournament is full")
+
+    # Enroll
+    participant = TournamentParticipant(
+        tournament_id=tournament_id,
+        user_id=current_user.id,
+    )
+    db.add(participant)
+    await db.flush()
+
+    new_count = current_count + 1
+
+    # AUTO-GENERATE BRACKET when capacity reached
+    if new_count == tournament.max_players:
+        await db.commit()  # commit the participant first
+        tournament = await generate_single_elimination_bracket(tournament_id, db)
+        return {
+            "status": "bracket_generated",
+            "message": f"Tournament is full! Bracket generated with {new_count} players.",
+            "participant_count": new_count,
+        }
+
+    await db.commit()
+    return {
+        "status": "joined",
+        "message": f"Enrolled successfully ({new_count}/{tournament.max_players})",
+        "participant_count": new_count,
+    }
+
+
+@app.delete("/api/tournaments/{tournament_id}/leave")
+async def leave_tournament(
+    tournament_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Leave an open tournament (before bracket is generated)."""
+    result = await db.execute(select(Tournament).filter(Tournament.id == tournament_id))
+    tournament = result.scalars().first()
+    if not tournament:
+        raise HTTPException(404, "Tournament not found")
+    if tournament.status != "open":
+        raise HTTPException(400, "Cannot leave a tournament that has already started")
+
+    result = await db.execute(
+        select(TournamentParticipant).filter(
+            TournamentParticipant.tournament_id == tournament_id,
+            TournamentParticipant.user_id == current_user.id,
+        )
+    )
+    participant = result.scalars().first()
+    if not participant:
+        raise HTTPException(400, "Not enrolled in this tournament")
+
+    await db.delete(participant)
+    await db.commit()
+    return {"status": "left", "message": "Left the tournament"}
+
+
+@app.get("/api/tournaments/{tournament_id}/bracket")
+async def get_bracket(tournament_id: str, db: AsyncSession = Depends(get_db)):
+    """Get the full bracket tree for a tournament."""
+    result = await db.execute(select(Tournament).filter(Tournament.id == tournament_id))
+    tournament = result.scalars().first()
+    if not tournament:
+        raise HTTPException(404, "Tournament not found")
+    if tournament.status == "open":
+        raise HTTPException(400, "Bracket not yet generated (tournament still open)")
+
+    return build_bracket_response(tournament)
+
+
+@app.post("/api/matches/{match_id}/create-lobby")
+async def create_tournament_lobby(
+    match_id: str,
+    req: TournamentLobbyRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin-only: Create a Cybershoke lobby for a tournament match."""
+    if current_user.role != "admin":
+        raise HTTPException(403, "Only admins can create lobbies")
+
+    result = await db.execute(select(TournamentMatch).filter(TournamentMatch.id == match_id))
+    match = result.scalars().first()
+    if not match:
+        raise HTTPException(404, "Match not found")
+    if not match.player1_id or not match.player2_id:
+        raise HTTPException(400, "Both players must be determined before creating a lobby")
+    if match.winner_id:
+        raise HTTPException(400, "Match already has a winner")
+
+    # Create Cybershoke lobby
+    link, lobby_id = create_cybershoke_lobby_api(admin_name=req.admin_name)
+    if not link:
+        raise HTTPException(500, "Failed to create Cybershoke lobby")
+
+    match.cybershoke_lobby_url = link
+    match.cybershoke_match_id = str(lobby_id) if lobby_id else None
+    await db.commit()
+
+    return {"status": "ok", "lobby_url": link, "match_id": str(lobby_id)}
+
+
+@app.post("/api/matches/{match_id}/advance-winner")
+async def advance_match_winner(
+    match_id: str,
+    req: AdvanceWinnerRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin-only: Set the winner of a match and advance them in the bracket."""
+    if current_user.role != "admin":
+        raise HTTPException(403, "Only admins can advance winners")
+
+    try:
+        match = await advance_winner(match_id, req.winner_id, db)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    return {"status": "ok", "message": "Winner advanced"}
+
+
+@app.delete("/api/tournaments/{tournament_id}")
+async def delete_tournament(
+    tournament_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin-only: Delete a tournament and all related data."""
+    if current_user.role != "admin":
+        raise HTTPException(403, "Only admins can delete tournaments")
+
+    result = await db.execute(select(Tournament).filter(Tournament.id == tournament_id))
+    tournament = result.scalars().first()
+    if not tournament:
+        raise HTTPException(404, "Tournament not found")
+
+    # Delete matches
+    result = await db.execute(
+        select(TournamentMatch).filter(TournamentMatch.tournament_id == tournament_id)
+    )
+    for match in result.scalars().all():
+        await db.delete(match)
+
+    # Delete participants
+    result = await db.execute(
+        select(TournamentParticipant).filter(TournamentParticipant.tournament_id == tournament_id)
+    )
+    for p in result.scalars().all():
+        await db.delete(p)
+
+    await db.delete(tournament)
+    await db.commit()
+    return {"status": "ok", "message": "Tournament deleted"}
+
 
 # ──────────────────────────────────────────────
 if __name__ == "__main__":

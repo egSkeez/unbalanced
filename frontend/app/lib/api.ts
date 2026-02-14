@@ -67,6 +67,8 @@ export const getCaptainInfo = (token: string) => fetchApi(`/api/votes/${token}`)
 // Captain Auth
 export const captainLogin = (name: string) =>
     fetchApi('/api/captain/login', { method: 'POST', body: JSON.stringify({ name }) });
+export const captainClaim = (name: string) =>
+    fetchApi('/api/captain/claim', { method: 'POST', body: JSON.stringify({ name }) });
 export const getCaptainState = (name: string) =>
     fetchApi(`/api/captain/state?name=${encodeURIComponent(name)}`);
 
@@ -115,3 +117,27 @@ export const analyzeLobby = (id: string) => fetchApi(`/api/admin/analyze/${id}`,
 export const getRoommates = () => fetchApi('/api/roommates');
 export const setRoommates = (groups: string[][]) =>
     fetchApi('/api/roommates', { method: 'POST', body: JSON.stringify({ groups }) });
+
+// Tournaments
+export const getTournaments = (status?: string) =>
+    fetchApi(`/api/tournaments${status ? `?status=${status}` : ''}`);
+export const createTournament = (data: { name: string; prize_image_url?: string; prize_name?: string; max_players: number; tournament_date?: string }, token: string) =>
+    fetchApi('/api/tournaments', { method: 'POST', body: JSON.stringify(data), headers: { 'Authorization': `Bearer ${token}` } });
+export const getTournament = (id: string) =>
+    fetchApi(`/api/tournaments/${id}`);
+export const joinTournament = (id: string, token: string) =>
+    fetchApi(`/api/tournaments/${id}/join`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+export const leaveTournament = (id: string, token: string) =>
+    fetchApi(`/api/tournaments/${id}/leave`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+export const getTournamentBracket = (id: string) =>
+    fetchApi(`/api/tournaments/${id}/bracket`);
+export const createTournamentLobby = (matchId: string, adminName: string, token: string) =>
+    fetchApi(`/api/matches/${matchId}/create-lobby`, { method: 'POST', body: JSON.stringify({ admin_name: adminName }), headers: { 'Authorization': `Bearer ${token}` } });
+export const advanceWinner = (matchId: string, winnerId: string, token: string) =>
+    fetchApi(`/api/matches/${matchId}/advance-winner`, { method: 'POST', body: JSON.stringify({ winner_id: winnerId }), headers: { 'Authorization': `Bearer ${token}` } });
+export const deleteTournament = (id: string, token: string) =>
+    fetchApi(`/api/tournaments/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+
+// CS2 Skin Search
+export const searchSkins = (query: string) =>
+    fetchApi(`/api/skins/search?q=${encodeURIComponent(query)}`);

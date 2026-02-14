@@ -108,7 +108,7 @@ export default function StatsPage() {
                                     <tr key={String(p.player_name)} style={{ cursor: 'pointer' }} onClick={() => loadPlayer(String(p.player_name))}>
                                         <td style={{ fontWeight: 700, color: i < 3 ? 'var(--gold)' : 'var(--text-secondary)' }}>{i + 1}</td>
                                         <td style={{ fontWeight: 600 }}>{String(p.player_name)}</td>
-                                        <td style={{ color: 'var(--neon-green)', fontWeight: 700 }}>{Number(p.rating || p.overall || 0).toFixed(2)}</td>
+                                        <td className="text-neon" style={{ fontWeight: 700 }}>{Number(p.rating || p.overall || 0).toFixed(2)}</td>
                                         <td>{Number(p.kd_ratio || 0).toFixed(2)}</td>
                                         <td>{Number(p.avg_adr || 0).toFixed(1)}</td>
                                         <td>{Number(p.avg_hs_pct || 0).toFixed(0)}%</td>
@@ -125,7 +125,7 @@ export default function StatsPage() {
             {/* PLAYER STATS TAB */}
             {!loading && tab === 'player' && selectedPlayer && playerStats.length > 0 && (
                 <div>
-                    <h2 style={{ fontFamily: 'Orbitron', fontSize: 22, marginBottom: 24 }}>👤 {selectedPlayer}</h2>
+                    <h2 className="font-orbitron" style={{ fontSize: 22, marginBottom: 24 }}>👤 {selectedPlayer}</h2>
                     {playerStats.map((s, idx) => {
                         const matches = Number(s.matches_played || 0);
                         const wins = Number(s.wins || 0);
@@ -141,8 +141,8 @@ export default function StatsPage() {
                                 </div>
                                 <div className="grid-4" style={{ marginBottom: 24 }}>
                                     <div className="stat-card"><div className="stat-card-icon">🎮</div><div className="stat-card-label">Matches</div><div className="stat-card-value">{matches}</div></div>
-                                    <div className="stat-card"><div className="stat-card-icon">🏆</div><div className="stat-card-label">Wins</div><div className="stat-card-value" style={{ color: '#2ecc71' }}>{wins}</div></div>
-                                    <div className="stat-card"><div className="stat-card-icon">💀</div><div className="stat-card-label">Losses</div><div className="stat-card-value" style={{ color: '#e74c3c' }}>{losses}</div></div>
+                                    <div className="stat-card"><div className="stat-card-icon">🏆</div><div className="stat-card-label">Wins</div><div className="stat-card-value text-neon">{wins}</div></div>
+                                    <div className="stat-card"><div className="stat-card-icon">💀</div><div className="stat-card-label">Losses</div><div className="stat-card-value" style={{ color: 'var(--red)' }}>{losses}</div></div>
                                     <div className="stat-card"><div className="stat-card-icon">📈</div><div className="stat-card-label">Win Rate</div><div className="stat-card-value">{winrate.toFixed(0)}%</div></div>
                                 </div>
                                 <div className="grid-4" style={{ marginBottom: 24 }}>
@@ -156,7 +156,7 @@ export default function StatsPage() {
                     })}
 
                     {/* Match history */}
-                    <h3 style={{ fontFamily: 'Orbitron', fontSize: 16, marginBottom: 16 }}>Recent Matches</h3>
+                    <h3 className="font-orbitron" style={{ fontSize: 16, marginBottom: 16 }}>Recent Matches</h3>
                     <div className="card">
                         <table className="data-table">
                             <thead>
@@ -168,7 +168,7 @@ export default function StatsPage() {
                                         <td>{String(m.map)}</td>
                                         <td>{String(m.score)}</td>
                                         <td><span className={`badge badge-${m.result === 'W' ? 'win' : m.result === 'L' ? 'loss' : 'draw'}`}>{String(m.result)}</span></td>
-                                        <td style={{ color: 'var(--neon-green)', fontWeight: 700 }}>{Number(m.rating || 0).toFixed(2)}</td>
+                                        <td className="text-neon" style={{ fontWeight: 700 }}>{Number(m.rating || 0).toFixed(2)}</td>
                                         <td>{String(m.kills)}</td>
                                         <td>{String(m.deaths)}</td>
                                         <td>{Number(m.adr || 0).toFixed(1)}</td>
@@ -200,7 +200,7 @@ export default function StatsPage() {
                                     <td>{String(m.map)}</td>
                                     <td>{String(m.score)}</td>
                                     <td><span className={`badge badge-${m.result === 'W' ? 'win' : m.result === 'L' ? 'loss' : 'draw'}`}>{String(m.result)}</span></td>
-                                    <td style={{ color: 'var(--neon-green)', fontWeight: 700 }}>{Number(m.rating || 0).toFixed(2)}</td>
+                                    <td className="text-neon" style={{ fontWeight: 700 }}>{Number(m.rating || 0).toFixed(2)}</td>
                                     <td>{String(m.kills)}</td>
                                     <td>{String(m.deaths)}</td>
                                     <td>{Number(m.adr || 0).toFixed(1)}</td>
