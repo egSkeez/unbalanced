@@ -12,6 +12,7 @@ import json
 import sqlite3
 import os
 import requests
+import datetime
 
 from auth import (
     init_user_accounts, create_access_token, get_current_user, get_current_user_optional,
@@ -215,25 +216,32 @@ async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
 
 @app.post("/api/auth/token", response_model=Token)
 async def login_for_access_token(req: LoginRequest, db: AsyncSession = Depends(get_db)):
-    # Authenticate
-    result = await db.execute(select(User).filter(User.username == req.username.lower()))
-    user = result.scalars().first()
-    
-    if not user or not verify_password(req.password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
+    try:
+        # Authenticate
+        result = await db.execute(select(User).filter(User.username == req.username.lower()))
+        user = result.scalars().first()
+
+        if not user or not verify_password(req.password, user.hashed_password):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect username or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        # Update last login
+        user.last_login = datetime.datetime.now(datetime.timezone.utc)
+        await db.commit()
+
+        access_token = create_access_token(
+            data={"sub": user.username, "role": user.role, "display_name": user.display_name}
         )
-    
-    # Update last login
-    user.last_login = pd.Timestamp.utcnow().to_pydatetime()
-    await db.commit()
-    
-    access_token = create_access_token(
-        data={"sub": user.username, "role": user.role, "display_name": user.display_name}
-    )
-    return {"access_token": access_token, "token_type": "bearer"}
+        return {"access_token": access_token, "token_type": "bearer"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Login error: {str(e)}")
 
 @app.get("/api/auth/me", response_model=Dict[str, Any])
 async def read_users_me(current_user: User = Depends(get_current_user)):
