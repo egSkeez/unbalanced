@@ -56,16 +56,16 @@ async def lifespan(app: FastAPI):
     init_db() # Legacy Sync
     init_match_stats_tables() # Legacy Sync
     check_and_migrate() # Legacy Sync
-    await init_async_db() # New Async
+    await init_async_db() # New Async (creates all tables including tournaments)
     await init_user_accounts() # New Async
-    # Migrate tournament table (add new columns if missing)
+    # Migrate tournament_date column for existing databases
     try:
-        conn = sqlite3.connect('cs2_history.db')
-        conn.execute("ALTER TABLE tournaments ADD COLUMN tournament_date TEXT")
-        conn.commit()
-        conn.close()
+        from sqlalchemy import text as sa_text
+        from database import sync_engine
+        with sync_engine.begin() as conn:
+            conn.execute(sa_text("ALTER TABLE tournaments ADD COLUMN tournament_date TEXT"))
     except Exception:
-        pass  # column already exists
+        pass  # column already exists or table just created with it
     yield
     # Shutdown
     pass
@@ -75,7 +75,7 @@ app = FastAPI(title="CS2 Pro Balancer API", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
