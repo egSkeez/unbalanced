@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import {
     getTournament, getTournamentBracket, joinTournament, leaveTournament,
-    createTournamentLobby, advanceWinner,
+    createTournamentLobby, advanceWinner, searchSkins,
 } from '@/app/lib/api';
 
 interface PlayerStats {
@@ -76,6 +76,55 @@ interface ParticipantData {
     stats?: PlayerStats | null;
 }
 
+// ──────────────────────────────────────────────
+// HELPERS
+// ──────────────────────────────────────────────
+
+function getStatLine(stats: PlayerStats | null | undefined): string {
+    if (!stats) return '';
+    if (stats.avg_rating != null) {
+        const parts = [`${stats.avg_rating.toFixed(2)} Rating`];
+        if (stats.overall_kd != null) parts.push(`${stats.overall_kd.toFixed(2)} K/D`);
+        if (stats.avg_adr != null) parts.push(`${stats.avg_adr.toFixed(0)} ADR`);
+        return parts.join(' · ');
+    }
+    if (stats.elo != null) {
+        const parts = [`${Math.round(stats.elo)} ELO`];
+        if (stats.aim != null) parts.push(`${stats.aim.toFixed(1)} Aim`);
+        if (stats.util != null) parts.push(`${stats.util.toFixed(1)} Util`);
+        if (stats.team_play != null) parts.push(`${stats.team_play.toFixed(1)} Team`);
+        return parts.join(' · ');
+    }
+    return '';
+}
+
+function getEloColor(elo: number): string {
+    if (elo >= 1700) return '#39ff14';
+    if (elo >= 1500) return '#4da6ff';
+    if (elo >= 1300) return 'var(--text-primary)';
+    if (elo >= 1100) return 'var(--orange)';
+    return 'var(--red)';
+}
+
+function getRatingColor(rating: number): string {
+    if (rating >= 1.3) return '#39ff14';
+    if (rating >= 1.1) return '#4da6ff';
+    if (rating >= 0.9) return 'var(--text-primary)';
+    if (rating >= 0.7) return 'var(--orange)';
+    return 'var(--red)';
+}
+
+function getMainStatDisplay(stats: PlayerStats | null | undefined): { value: string; color: string } | null {
+    if (!stats) return null;
+    if (stats.avg_rating != null) return { value: stats.avg_rating.toFixed(2), color: getRatingColor(stats.avg_rating) };
+    if (stats.elo != null) return { value: String(Math.round(stats.elo)), color: getEloColor(stats.elo) };
+    return null;
+}
+
+// ──────────────────────────────────────────────
+// MAIN PAGE
+// ──────────────────────────────────────────────
+
 export default function TournamentDetailPage() {
     const params = useParams();
     const tournamentId = params.id as string;
@@ -87,6 +136,7 @@ export default function TournamentDetailPage() {
     const [loading, setLoading] = useState(true);
     const [actionLoading, setActionLoading] = useState<string | null>(null);
     const [error, setError] = useState('');
+    const [prizeImage, setPrizeImage] = useState<string | null>(null);
 
     const isAdmin = user?.role === 'admin';
 
@@ -95,6 +145,16 @@ export default function TournamentDetailPage() {
             const tData = await getTournament(tournamentId);
             setTournament(tData);
             setParticipants(tData.participants || []);
+
+            // Auto-fetch prize image if missing but prize_name exists
+            if (!tData.prize_image_url && tData.prize_name) {
+                try {
+                    const skins = await searchSkins(tData.prize_name);
+                    if (skins.length > 0) setPrizeImage(skins[0].image);
+                } catch { /* ignore */ }
+            } else if (tData.prize_image_url) {
+                setPrizeImage(tData.prize_image_url);
+            }
 
             if (tData.status === 'active' || tData.status === 'completed') {
                 const bData = await getTournamentBracket(tournamentId);
@@ -193,67 +253,69 @@ export default function TournamentDetailPage() {
                 <span style={{ color: 'var(--text-muted)' }}>/</span>
             </div>
 
-            {/* Header with Prize */}
-            <div style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'stretch',
-                marginBottom: 24, gap: 24,
-            }}>
-                {/* Left: Title + Info */}
-                <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-                        <h1 className="page-title" style={{ margin: 0 }}>{tournament.name}</h1>
-                        <span style={{
-                            fontSize: 12, fontWeight: 700, textTransform: 'uppercase',
-                            padding: '3px 10px', borderRadius: 4,
-                            background: `${statusColors[tournament.status]}22`,
-                            color: statusColors[tournament.status],
-                            border: `1px solid ${statusColors[tournament.status]}44`,
-                        }}>
-                            {tournament.status}
-                        </span>
-                    </div>
-                    <p style={{ color: 'var(--text-secondary)', margin: '4px 0', fontSize: 14 }}>
-                        {tournament.max_players}-player single elimination
-                        {tournament.tournament_date && (
-                            <span style={{ marginLeft: 12, color: 'var(--text-muted)' }}>
-                                {new Date(tournament.tournament_date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
-                            </span>
-                        )}
-                    </p>
-                </div>
-
-                {/* Right: Prize Card */}
-                {(tournament.prize_image_url || tournament.prize_name) && (
-                    <div style={{
-                        display: 'flex', alignItems: 'center', gap: 16,
-                        padding: '12px 20px', borderRadius: 12,
-                        background: 'linear-gradient(135deg, rgba(255,215,0,0.08), rgba(255,140,0,0.04))',
-                        border: '1px solid rgba(255,215,0,0.25)',
-                        flexShrink: 0,
+            {/* Header */}
+            <div style={{ marginBottom: 24 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                    <h1 className="page-title" style={{ margin: 0 }}>{tournament.name}</h1>
+                    <span style={{
+                        fontSize: 12, fontWeight: 700, textTransform: 'uppercase',
+                        padding: '3px 10px', borderRadius: 4,
+                        background: `${statusColors[tournament.status]}22`,
+                        color: statusColors[tournament.status],
+                        border: `1px solid ${statusColors[tournament.status]}44`,
                     }}>
-                        {tournament.prize_image_url && (
-                            <div style={{
-                                width: 100, height: 75,
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            }}>
-                                <img
-                                    src={tournament.prize_image_url}
-                                    alt={tournament.prize_name || 'Prize'}
-                                    style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
-                                />
-                            </div>
-                        )}
-                        <div>
-                            <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: 'var(--gold)', letterSpacing: '0.1em', marginBottom: 2 }}>
-                                Prize
-                            </div>
-                            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', maxWidth: 180 }}>
-                                {tournament.prize_name || 'TBA'}
-                            </div>
+                        {tournament.status}
+                    </span>
+                </div>
+                <p style={{ color: 'var(--text-secondary)', margin: '4px 0', fontSize: 14 }}>
+                    {tournament.max_players}-player single elimination
+                    {tournament.tournament_date && (
+                        <span style={{ marginLeft: 12, color: 'var(--text-muted)' }}>
+                            {new Date(tournament.tournament_date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                        </span>
+                    )}
+                </p>
+            </div>
+
+            {/* Prize Banner — always visible if prize exists */}
+            {(prizeImage || tournament.prize_name) && (
+                <div style={{
+                    display: 'flex', alignItems: 'center', gap: 20,
+                    padding: '16px 24px', borderRadius: 12, marginBottom: 24,
+                    background: 'linear-gradient(135deg, rgba(255,215,0,0.1), rgba(255,140,0,0.05))',
+                    border: '1px solid rgba(255,215,0,0.3)',
+                }}>
+                    {prizeImage ? (
+                        <div style={{
+                            width: 120, height: 90, flexShrink: 0,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                            <img
+                                src={prizeImage}
+                                alt={tournament.prize_name || 'Prize'}
+                                style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                            />
+                        </div>
+                    ) : (
+                        <div style={{
+                            width: 80, height: 80, flexShrink: 0, borderRadius: 12,
+                            background: 'linear-gradient(135deg, var(--gold), var(--orange))',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 36,
+                        }}>
+                            🏆
+                        </div>
+                    )}
+                    <div>
+                        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--gold)', letterSpacing: '0.1em', marginBottom: 4 }}>
+                            Prize
+                        </div>
+                        <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>
+                            {tournament.prize_name || 'TBA'}
                         </div>
                     </div>
-                )}
-            </div>
+                </div>
+            )}
 
             {error && (
                 <div style={{ padding: '12px 16px', background: 'rgba(255,51,51,0.15)', border: '1px solid rgba(255,51,51,0.3)', borderRadius: 8, marginBottom: 16, color: 'var(--red)' }}>
@@ -269,8 +331,8 @@ export default function TournamentDetailPage() {
                     border: '1px solid rgba(255,215,0,0.3)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16,
                 }}>
-                    {tournament.prize_image_url && (
-                        <img src={tournament.prize_image_url} alt="" style={{ width: 48, height: 48, objectFit: 'contain' }} />
+                    {prizeImage && (
+                        <img src={prizeImage} alt="" style={{ width: 48, height: 48, objectFit: 'contain' }} />
                     )}
                     <div style={{ textAlign: 'center' }}>
                         <div style={{ fontSize: 28, marginBottom: 2 }}>🏆</div>
@@ -281,45 +343,84 @@ export default function TournamentDetailPage() {
                 </div>
             )}
 
-            {/* Open: Enrollment UI */}
+            {/* Enrollment Actions (open only) */}
+            {tournament.status === 'open' && user && (
+                <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                    <button className="btn btn-primary btn-sm" onClick={handleJoin}>
+                        Join Tournament
+                    </button>
+                    <button className="btn btn-sm" onClick={handleLeave} style={{ color: 'var(--red)' }}>
+                        Leave
+                    </button>
+                </div>
+            )}
+
+            {/* Progress bar (open only) */}
             {tournament.status === 'open' && (
+                <div style={{ background: '#222', borderRadius: 6, height: 8, overflow: 'hidden', marginBottom: 20 }}>
+                    <div style={{
+                        width: `${(tournament.participant_count / tournament.max_players) * 100}%`,
+                        height: '100%',
+                        background: 'var(--neon-green)',
+                        borderRadius: 6,
+                        transition: 'width 0.3s',
+                    }} />
+                </div>
+            )}
+
+            {/* Players Section — ALWAYS visible */}
+            {participants.length > 0 && (
                 <div className="card" style={{ marginBottom: 24 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                        <h3 style={{ fontWeight: 700, margin: 0 }}>
-                            Enrollment ({tournament.participant_count}/{tournament.max_players})
-                        </h3>
-                        {user && (
-                            <div style={{ display: 'flex', gap: 8 }}>
-                                <button className="btn btn-primary btn-sm" onClick={handleJoin}>
-                                    Join Tournament
-                                </button>
-                                <button className="btn btn-sm" onClick={handleLeave} style={{ color: 'var(--red)' }}>
-                                    Leave
-                                </button>
-                            </div>
-                        )}
-                    </div>
-                    {/* Progress */}
-                    <div style={{ background: '#222', borderRadius: 6, height: 8, overflow: 'hidden', marginBottom: 20 }}>
-                        <div style={{
-                            width: `${(tournament.participant_count / tournament.max_players) * 100}%`,
-                            height: '100%',
-                            background: 'var(--neon-green)',
-                            borderRadius: 6,
-                            transition: 'width 0.3s',
-                        }} />
-                    </div>
-                    {/* Participant Cards with Stats */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
-                        {participants.map(p => (
-                            <ParticipantCard key={p.id} participant={p} />
-                        ))}
-                        {Array.from({ length: tournament.max_players - tournament.participant_count }).map((_, i) => (
+                    <h3 style={{ fontWeight: 700, margin: '0 0 16px 0', fontSize: 16 }}>
+                        Players ({participants.length}/{tournament.max_players})
+                    </h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 10 }}>
+                        {participants.map(p => {
+                            const stat = getMainStatDisplay(p.stats);
+                            const line = getStatLine(p.stats);
+                            return (
+                                <div key={p.id} style={{
+                                    padding: '12px 16px', borderRadius: 10,
+                                    background: '#111',
+                                    border: '1px solid var(--border)',
+                                    display: 'flex', alignItems: 'center', gap: 12,
+                                }}>
+                                    {/* Avatar with main stat */}
+                                    <div style={{
+                                        width: 40, height: 40, borderRadius: '50%', flexShrink: 0,
+                                        background: stat ? `${stat.color}18` : 'var(--card-hover)',
+                                        border: stat ? `2px solid ${stat.color}55` : '2px solid var(--border)',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        fontSize: stat ? 12 : 15, fontWeight: 800,
+                                        color: stat ? stat.color : 'var(--text-secondary)',
+                                    }}>
+                                        {stat ? stat.value : p.display_name[0]?.toUpperCase()}
+                                    </div>
+                                    {/* Name + stat line */}
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
+                                            {p.display_name}
+                                        </div>
+                                        {line && (
+                                            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                                                {line}
+                                            </div>
+                                        )}
+                                    </div>
+                                    {p.seed && tournament.status !== 'open' && (
+                                        <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600 }}>
+                                            #{p.seed}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                        {tournament.status === 'open' && Array.from({ length: tournament.max_players - tournament.participant_count }).map((_, i) => (
                             <div key={`empty-${i}`} style={{
                                 padding: '14px 16px', borderRadius: 10,
                                 border: '1px dashed var(--border)', color: 'var(--text-muted)',
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                minHeight: 60, fontSize: 13,
+                                minHeight: 56, fontSize: 13,
                             }}>
                                 Open Slot
                             </div>
@@ -344,129 +445,23 @@ export default function TournamentDetailPage() {
 
 
 // ──────────────────────────────────────────────
-// STAT HELPERS
-// ──────────────────────────────────────────────
-
-function getRatingColor(rating: number): string {
-    if (rating >= 1.3) return '#39ff14';
-    if (rating >= 1.1) return '#4da6ff';
-    if (rating >= 0.9) return 'var(--text-primary)';
-    if (rating >= 0.7) return 'var(--orange)';
-    return 'var(--red)';
-}
-
-function StatBadge({ label, value, color }: { label: string; value: string; color?: string }) {
-    return (
-        <div style={{ textAlign: 'center', minWidth: 44 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: color || 'var(--text-primary)', lineHeight: 1.2 }}>
-                {value}
-            </div>
-            <div style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.05em' }}>
-                {label}
-            </div>
-        </div>
-    );
-}
-
-function MiniStats({ stats }: { stats: PlayerStats }) {
-    // Has full match stats (HLTV rating, KD, etc.)
-    if (stats.avg_rating !== undefined && stats.avg_rating !== null) {
-        return (
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                <StatBadge label="Rating" value={stats.avg_rating.toFixed(2)} color={getRatingColor(stats.avg_rating)} />
-                {stats.overall_kd != null && <StatBadge label="K/D" value={stats.overall_kd.toFixed(2)} />}
-                {stats.avg_adr != null && <StatBadge label="ADR" value={stats.avg_adr.toFixed(0)} />}
-                {stats.winrate_pct != null && <StatBadge label="Win%" value={`${stats.winrate_pct.toFixed(0)}%`} />}
-                {stats.matches_played != null && <StatBadge label="Maps" value={String(stats.matches_played)} color="var(--text-secondary)" />}
-            </div>
-        );
-    }
-    // Fallback: basic player data (elo, aim, etc.)
-    if (stats.elo !== undefined && stats.elo !== null) {
-        return (
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                <StatBadge label="ELO" value={String(Math.round(stats.elo))} color="var(--gold)" />
-                {stats.aim != null && <StatBadge label="Aim" value={stats.aim.toFixed(1)} />}
-                {stats.util != null && <StatBadge label="Util" value={stats.util.toFixed(1)} />}
-                {stats.team_play != null && <StatBadge label="Team" value={stats.team_play.toFixed(1)} />}
-            </div>
-        );
-    }
-    return null;
-}
-
-
-// ──────────────────────────────────────────────
-// PARTICIPANT CARD
-// ──────────────────────────────────────────────
-
-function ParticipantCard({ participant }: { participant: ParticipantData }) {
-    const stats = participant.stats;
-    return (
-        <div style={{
-            padding: '12px 16px', borderRadius: 10,
-            background: 'var(--card-bg)',
-            border: '1px solid var(--border)',
-            display: 'flex', alignItems: 'center', gap: 12,
-        }}>
-            {/* Avatar */}
-            <div style={{
-                width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
-                background: 'var(--card-hover)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 14, fontWeight: 800, color: 'var(--text-secondary)',
-            }}>
-                {participant.display_name[0]?.toUpperCase()}
-            </div>
-            {/* Name + Stats */}
-            <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: stats ? 4 : 0 }}>
-                    {participant.display_name}
-                </div>
-                {stats && <MiniStats stats={stats} />}
-            </div>
-        </div>
-    );
-}
-
-
-// ──────────────────────────────────────────────
-// BRACKET VIEW COMPONENT
+// BRACKET VIEW
 // ──────────────────────────────────────────────
 
 function BracketView({
-    bracket,
-    isAdmin,
-    actionLoading,
-    onCreateLobby,
-    onAdvanceWinner,
+    bracket, isAdmin, actionLoading, onCreateLobby, onAdvanceWinner,
 }: {
-    bracket: BracketData;
-    isAdmin: boolean;
-    actionLoading: string | null;
-    onCreateLobby: (matchId: string) => void;
-    onAdvanceWinner: (matchId: string, winnerId: string) => void;
+    bracket: BracketData; isAdmin: boolean; actionLoading: string | null;
+    onCreateLobby: (id: string) => void; onAdvanceWinner: (id: string, wid: string) => void;
 }) {
-    const totalRounds = bracket.total_rounds;
-
     return (
         <div>
             <h2 style={{ fontWeight: 700, marginBottom: 16, fontSize: 20 }}>Bracket</h2>
-            <div style={{
-                display: 'flex',
-                gap: 0,
-                overflowX: 'auto',
-                paddingBottom: 16,
-            }}>
+            <div style={{ display: 'flex', gap: 0, overflowX: 'auto', paddingBottom: 16 }}>
                 {bracket.rounds.map((round) => (
-                    <BracketRound
-                        key={round.round_number}
-                        round={round}
-                        totalRounds={totalRounds}
-                        isAdmin={isAdmin}
-                        actionLoading={actionLoading}
-                        onCreateLobby={onCreateLobby}
-                        onAdvanceWinner={onAdvanceWinner}
+                    <BracketRound key={round.round_number} round={round} totalRounds={bracket.total_rounds}
+                        isAdmin={isAdmin} actionLoading={actionLoading}
+                        onCreateLobby={onCreateLobby} onAdvanceWinner={onAdvanceWinner}
                     />
                 ))}
             </div>
@@ -475,27 +470,17 @@ function BracketView({
 }
 
 function BracketRound({
-    round,
-    totalRounds,
-    isAdmin,
-    actionLoading,
-    onCreateLobby,
-    onAdvanceWinner,
+    round, totalRounds, isAdmin, actionLoading, onCreateLobby, onAdvanceWinner,
 }: {
-    round: RoundData;
-    totalRounds: number;
-    isAdmin: boolean;
-    actionLoading: string | null;
-    onCreateLobby: (matchId: string) => void;
-    onAdvanceWinner: (matchId: string, winnerId: string) => void;
+    round: RoundData; totalRounds: number; isAdmin: boolean; actionLoading: string | null;
+    onCreateLobby: (id: string) => void; onAdvanceWinner: (id: string, wid: string) => void;
 }) {
-    const matchHeight = 180;
+    const matchHeight = 200;
     const roundSpacing = Math.pow(2, round.round_number - 1);
     const topPadding = (roundSpacing - 1) * (matchHeight / 2);
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 280 }}>
-            {/* Round Header */}
+        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 300 }}>
             <div style={{
                 textAlign: 'center', padding: '8px 16px', marginBottom: 12,
                 fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)',
@@ -503,25 +488,14 @@ function BracketRound({
             }}>
                 {round.name}
             </div>
-
-            {/* Matches */}
             <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-around',
-                flex: 1,
-                paddingTop: topPadding,
-                gap: (roundSpacing - 1) * matchHeight,
+                display: 'flex', flexDirection: 'column', justifyContent: 'space-around',
+                flex: 1, paddingTop: topPadding, gap: (roundSpacing - 1) * matchHeight,
             }}>
                 {round.matches.map((match) => (
-                    <MatchCard
-                        key={match.id}
-                        match={match}
-                        isAdmin={isAdmin}
-                        actionLoading={actionLoading}
-                        onCreateLobby={onCreateLobby}
-                        onAdvanceWinner={onAdvanceWinner}
-                        isFinal={round.round_number === totalRounds}
+                    <MatchCard key={match.id} match={match} isAdmin={isAdmin}
+                        actionLoading={actionLoading} onCreateLobby={onCreateLobby}
+                        onAdvanceWinner={onAdvanceWinner} isFinal={round.round_number === totalRounds}
                     />
                 ))}
             </div>
@@ -531,143 +505,78 @@ function BracketRound({
 
 
 function MatchCard({
-    match,
-    isAdmin,
-    actionLoading,
-    onCreateLobby,
-    onAdvanceWinner,
-    isFinal,
+    match, isAdmin, actionLoading, onCreateLobby, onAdvanceWinner, isFinal,
 }: {
-    match: MatchData;
-    isAdmin: boolean;
-    actionLoading: string | null;
-    onCreateLobby: (matchId: string) => void;
-    onAdvanceWinner: (matchId: string, winnerId: string) => void;
+    match: MatchData; isAdmin: boolean; actionLoading: string | null;
+    onCreateLobby: (id: string) => void; onAdvanceWinner: (id: string, wid: string) => void;
     isFinal: boolean;
 }) {
     const isActive = match.player1 && match.player2 && !match.winner;
     const isLoading = actionLoading === match.id;
-
-    const borderColor = match.winner
-        ? 'rgba(57,255,20,0.3)'
-        : isActive
-            ? 'rgba(255,140,0,0.4)'
-            : 'var(--border)';
+    const borderColor = match.winner ? 'rgba(57,255,20,0.3)' : isActive ? 'rgba(255,140,0,0.4)' : 'var(--border)';
 
     return (
         <div style={{
-            background: 'var(--card-bg)',
-            border: `1px solid ${borderColor}`,
-            borderRadius: 10,
-            padding: 12,
-            margin: '0 8px',
-            minWidth: 260,
-            position: 'relative',
+            background: 'var(--card-bg)', border: `1px solid ${borderColor}`,
+            borderRadius: 10, padding: 12, margin: '0 8px', minWidth: 280,
         }}>
-            {isFinal && (
-                <div style={{ textAlign: 'center', fontSize: 20, marginBottom: 4 }}>🏆</div>
-            )}
+            {isFinal && <div style={{ textAlign: 'center', fontSize: 20, marginBottom: 4 }}>🏆</div>}
 
-            {/* Player Slots */}
-            <PlayerSlot
-                player={match.player1}
-                isWinner={match.winner?.id === match.player1?.id}
-                isActive={!!(isActive && !match.winner)}
-                isAdmin={isAdmin}
-                onSelect={() => match.player1 && onAdvanceWinner(match.id, match.player1.id)}
-            />
+            <PlayerSlot player={match.player1} isWinner={match.winner?.id === match.player1?.id}
+                isActive={!!(isActive && !match.winner)} isAdmin={isAdmin}
+                onSelect={() => match.player1 && onAdvanceWinner(match.id, match.player1.id)} />
 
-            <div style={{
-                textAlign: 'center', fontSize: 11, fontWeight: 700, color: 'var(--text-muted)',
-                margin: '4px 0', letterSpacing: '0.1em',
-            }}>
-                VS
-            </div>
+            <div style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', margin: '4px 0', letterSpacing: '0.1em' }}>VS</div>
 
-            <PlayerSlot
-                player={match.player2}
-                isWinner={match.winner?.id === match.player2?.id}
-                isActive={!!(isActive && !match.winner)}
-                isAdmin={isAdmin}
-                onSelect={() => match.player2 && onAdvanceWinner(match.id, match.player2.id)}
-            />
+            <PlayerSlot player={match.player2} isWinner={match.winner?.id === match.player2?.id}
+                isActive={!!(isActive && !match.winner)} isAdmin={isAdmin}
+                onSelect={() => match.player2 && onAdvanceWinner(match.id, match.player2.id)} />
 
-            {/* Lobby URL Display */}
             {match.cybershoke_lobby_url && (
-                <a
-                    href={match.cybershoke_lobby_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                        display: 'block', marginTop: 8, padding: '6px 10px',
-                        background: 'rgba(0,160,255,0.1)', border: '1px solid rgba(0,160,255,0.3)',
-                        borderRadius: 6, color: 'var(--blue)', fontSize: 11,
-                        textDecoration: 'none', textAlign: 'center',
-                        wordBreak: 'break-all',
-                    }}
-                >
+                <a href={match.cybershoke_lobby_url} target="_blank" rel="noopener noreferrer" style={{
+                    display: 'block', marginTop: 8, padding: '6px 10px',
+                    background: 'rgba(0,160,255,0.1)', border: '1px solid rgba(0,160,255,0.3)',
+                    borderRadius: 6, color: 'var(--blue)', fontSize: 11,
+                    textDecoration: 'none', textAlign: 'center',
+                }}>
                     Join Lobby
                 </a>
             )}
 
-            {/* Admin Controls */}
-            {isAdmin && isActive && !isLoading && (
-                <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>
-                    {!match.cybershoke_lobby_url && (
-                        <button
-                            className="btn btn-sm"
-                            onClick={() => onCreateLobby(match.id)}
-                            style={{
-                                flex: 1, fontSize: 11, padding: '5px 8px',
-                                background: 'rgba(0,160,255,0.15)', color: 'var(--blue)',
-                                border: '1px solid rgba(0,160,255,0.3)',
-                            }}
-                        >
-                            Create Cybershoke Server
-                        </button>
-                    )}
-                </div>
+            {isAdmin && isActive && !isLoading && !match.cybershoke_lobby_url && (
+                <button className="btn btn-sm" onClick={() => onCreateLobby(match.id)} style={{
+                    width: '100%', marginTop: 8, fontSize: 11, padding: '5px 8px',
+                    background: 'rgba(0,160,255,0.15)', color: 'var(--blue)',
+                    border: '1px solid rgba(0,160,255,0.3)',
+                }}>
+                    Create Cybershoke Server
+                </button>
             )}
 
-            {isLoading && (
-                <div style={{ textAlign: 'center', marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
-                    Loading...
-                </div>
-            )}
+            {isLoading && <div style={{ textAlign: 'center', marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>Loading...</div>}
         </div>
     );
 }
 
 
 function PlayerSlot({
-    player,
-    isWinner,
-    isActive,
-    isAdmin,
-    onSelect,
+    player, isWinner, isActive, isAdmin, onSelect,
 }: {
-    player: PlayerInfo | null;
-    isWinner: boolean;
-    isActive: boolean;
-    isAdmin: boolean;
-    onSelect: () => void;
+    player: PlayerInfo | null; isWinner: boolean; isActive: boolean;
+    isAdmin: boolean; onSelect: () => void;
 }) {
     if (!player) {
         return (
             <div style={{
-                padding: '8px 12px', borderRadius: 6,
+                padding: '10px 12px', borderRadius: 6,
                 background: '#111', border: '1px dashed var(--border)',
-                color: 'var(--text-muted)', fontSize: 13,
-                textAlign: 'center',
-            }}>
-                TBD
-            </div>
+                color: 'var(--text-muted)', fontSize: 13, textAlign: 'center',
+            }}>TBD</div>
         );
     }
 
-    const stats = player.stats;
-    const hasRating = stats?.avg_rating != null;
-    const hasKd = stats?.overall_kd != null;
+    const stat = getMainStatDisplay(player.stats);
+    const line = getStatLine(player.stats);
 
     return (
         <div
@@ -676,56 +585,52 @@ function PlayerSlot({
                 padding: '8px 12px', borderRadius: 6,
                 background: isWinner ? 'rgba(57,255,20,0.12)' : '#111',
                 border: `1px solid ${isWinner ? 'rgba(57,255,20,0.4)' : 'transparent'}`,
-                display: 'flex', alignItems: 'center', gap: 8,
                 cursor: isAdmin && isActive ? 'pointer' : 'default',
                 transition: 'all 0.15s',
             }}
-            onMouseEnter={e => {
-                if (isAdmin && isActive) {
-                    (e.currentTarget as HTMLDivElement).style.background = 'rgba(57,255,20,0.08)';
-                    (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(57,255,20,0.3)';
-                }
-            }}
-            onMouseLeave={e => {
-                if (isAdmin && isActive && !isWinner) {
-                    (e.currentTarget as HTMLDivElement).style.background = '#111';
-                    (e.currentTarget as HTMLDivElement).style.borderColor = 'transparent';
-                }
-            }}
+            onMouseEnter={e => { if (isAdmin && isActive) { e.currentTarget.style.background = 'rgba(57,255,20,0.08)'; e.currentTarget.style.borderColor = 'rgba(57,255,20,0.3)'; } }}
+            onMouseLeave={e => { if (isAdmin && isActive && !isWinner) { e.currentTarget.style.background = '#111'; e.currentTarget.style.borderColor = 'transparent'; } }}
         >
-            {/* Avatar */}
-            <div style={{
-                width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
-                background: isWinner ? 'var(--neon-green)' : 'var(--card-hover)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 10, fontWeight: 800, color: isWinner ? '#000' : 'var(--text-secondary)',
-            }}>
-                {isWinner ? '✓' : player.display_name[0]?.toUpperCase()}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {/* Avatar */}
+                <div style={{
+                    width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
+                    background: isWinner ? 'var(--neon-green)' : 'var(--card-hover)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 10, fontWeight: 800, color: isWinner ? '#000' : 'var(--text-secondary)',
+                }}>
+                    {isWinner ? '✓' : player.display_name[0]?.toUpperCase()}
+                </div>
+
+                {/* Name */}
+                <span style={{
+                    fontSize: 13, fontWeight: isWinner ? 700 : 500,
+                    color: isWinner ? 'var(--neon-green)' : 'var(--text-primary)',
+                    flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>
+                    {player.display_name}
+                </span>
+
+                {/* Main stat badge */}
+                {stat && (
+                    <span style={{
+                        fontSize: 12, fontWeight: 800, color: stat.color, flexShrink: 0,
+                        background: `${stat.color}15`, padding: '2px 6px', borderRadius: 4,
+                    }}>
+                        {stat.value}
+                    </span>
+                )}
+
+                {isAdmin && isActive && (
+                    <span style={{ fontSize: 9, color: 'var(--text-muted)', flexShrink: 0 }}>click</span>
+                )}
             </div>
 
-            {/* Name */}
-            <span style={{
-                fontSize: 13, fontWeight: isWinner ? 700 : 500,
-                color: isWinner ? 'var(--neon-green)' : 'var(--text-primary)',
-                flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            }}>
-                {player.display_name}
-            </span>
-
-            {/* Inline stats in bracket */}
-            {hasRating && (
-                <span style={{ fontSize: 11, fontWeight: 700, color: getRatingColor(stats!.avg_rating!), flexShrink: 0 }}>
-                    {stats!.avg_rating!.toFixed(2)}
-                </span>
-            )}
-            {hasKd && (
-                <span style={{ fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>
-                    {stats!.overall_kd!.toFixed(2)}
-                </span>
-            )}
-
-            {isAdmin && isActive && (
-                <span style={{ fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>click to win</span>
+            {/* Stat detail line */}
+            {line && (
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 3, marginLeft: 34 }}>
+                    {line}
+                </div>
             )}
         </div>
     );
