@@ -1,8 +1,7 @@
-# auth.py — JWT authentication & user account management (Async/SQLAlchemy)
 import os
+import bcrypt
 from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from sqlalchemy.future import select
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +16,6 @@ SECRET_KEY = os.getenv("JWT_SECRET", "cs2-pro-balancer-secret-key-change-in-prod
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 72
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)
 
@@ -28,10 +26,15 @@ ADMIN_PLAYERS = {"Skeez", "Kim", "magon"}
 # ──────────────────────────────────────────────
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    try:
+        return bcrypt.checkpw(plain.encode('utf-8'), hashed.encode('utf-8'))
+    except Exception:
+        return False
 
 def hash_password(plain: str) -> str:
-    return pwd_context.hash(plain)
+    # Use 12 rounds (standard/secure)
+    salt = bcrypt.gensalt(rounds=12)
+    return bcrypt.hashpw(plain.encode('utf-8'), salt).decode('utf-8')
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
     to_encode = data.copy()
