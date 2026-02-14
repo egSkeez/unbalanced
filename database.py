@@ -35,7 +35,13 @@ else:
 
 # Create Engines
 if DATABASE_URL_SYNC and "sqlite" not in DATABASE_URL_SYNC:
-    engine = create_async_engine(DATABASE_URL_ASYNC, echo=False)
+    # Supabase uses PgBouncer which doesn't support prepared statements.
+    # Disable statement caching to avoid "prepared statement already exists" errors.
+    engine = create_async_engine(
+        DATABASE_URL_ASYNC,
+        echo=False,
+        connect_args={"statement_cache_size": 0, "prepared_statement_cache_size": 0},
+    )
     sync_engine = create_engine(DATABASE_URL_SYNC)
 else:
     # Fallback to SQLite if no URL provided (safe default for local dev without env)
