@@ -1,0 +1,23 @@
+Γû▓ Next.js 16.1.6 (Turbopack)
+
+  Creating an optimized production build ...
+Γ£ô Compiled successfully in 716.6ms
+  Running TypeScript ...
+  Collecting page data using 15 workers ...
+  Generating static pages using 15 workers (0/12) ...
+  Generating static pages using 15 workers (3/12) 
+  Generating static pages using 15 workers (6/12) 
+Γ¿» useSearchParams() should be wrapped in a suspense boundary at page "/profile". Read more: https://nextjs.org/docs/messages/missing-suspense-with-csr-bailout
+    at Q (C:\Users\Skeez\Documents\unbalanced\frontend\.next\server\chunks\ssr\_05fdeac6._.js:2:2111)
+    at o (C:\Users\Skeez\Documents\unbalanced\frontend\.next\server\chunks\ssr\_05fdeac6._.js:4:5284)
+    at h (C:\Users\Skeez\Documents\unbalanced\frontend\.next\server\chunks\ssr\app_6959c8ed._.js:1:2693)
+    at an (C:\Users\Skeez\Documents\unbalanced\frontend\node_modules\next\dist\compiled\next-server\app-page-turbo.runtime.prod.js:2:84360)
+    at ai (C:\Users\Skeez\Documents\unbalanced\frontend\node_modules\next\dist\compiled\next-server\app-page-turbo.runtime.prod.js:2:86179)
+    at al (C:\Users\Skeez\Documents\unbalanced\frontend\node_modules\next\dist\compiled\next-server\app-page-turbo.runtime.prod.js:2:107953)
+    at as (C:\Users\Skeez\Documents\unbalanced\frontend\node_modules\next\dist\compiled\next-server\app-page-turbo.runtime.prod.js:2:105368)
+    at aa (C:\Users\Skeez\Documents\unbalanced\frontend\node_modules\next\dist\compiled\next-server\app-page-turbo.runtime.prod.js:2:84712)
+    at ai (C:\Users\Skeez\Documents\unbalanced\frontend\node_modules\next\dist\compiled\next-server\app-page-turbo.runtime.prod.js:2:86228)
+    at ai (C:\Users\Skeez\Documents\unbalanced\frontend\node_modules\next\dist\compiled\next-server\app-page-turbo.runtime.prod.js:2:104708)
+Error occurred prerendering page "/profile". Read more: https://nextjs.org/docs/messages/prerender-error
+Export encountered an error on /profile/page: /profile, exiting the build.
+Γ¿» Next.js build worker exited with code: 1 and signal: null
