@@ -229,7 +229,7 @@ async def login_for_access_token(req: LoginRequest, db: AsyncSession = Depends(g
             )
 
         # Update last login
-        user.last_login = datetime.datetime.now(datetime.timezone.utc)
+        user.last_login = datetime.datetime.utcnow()
         await db.commit()
 
         access_token = create_access_token(
