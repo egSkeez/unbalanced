@@ -1532,24 +1532,130 @@ async def create_tournament(
 
 @app.get("/api/tournaments/{tournament_id}")
 async def get_tournament(tournament_id: str, db: AsyncSession = Depends(get_db)):
-    """Get tournament details including participant list."""
+    """Get tournament details including participant list with stats."""
     result = await db.execute(select(Tournament).filter(Tournament.id == tournament_id))
     tournament = result.scalars().first()
     if not tournament:
         raise HTTPException(404, "Tournament not found")
 
     data = serialize_tournament(tournament)
-    data["participants"] = [
-        {
+
+    # Build participant list with stats
+    participants = []
+    for p in (tournament.participants or []):
+        pdata = {
             "id": p.id,
             "user_id": p.user.id if p.user else p.user_id,
             "username": p.user.username if p.user else "Unknown",
             "display_name": p.user.display_name if p.user else "Unknown",
             "seed": p.seed,
+            "stats": None,
         }
-        for p in (tournament.participants or [])
-    ]
+        # Fetch player stats from match_stats if available
+        player_name = p.user.display_name if p.user else None
+        if player_name:
+            pdata["stats"] = _get_player_stats_safe(player_name)
+        participants.append(pdata)
+
+    data["participants"] = participants
     return data
+
+
+def _get_player_stats_safe(player_name: str) -> dict | None:
+    """Fetch player aggregate stats using sync_engine. Returns None if unavailable."""
+    from database import sync_engine
+    try:
+        with sync_engine.connect() as conn:
+            from sqlalchemy import text as sa_text
+            # Check if player_match_stats table exists
+            if sync_engine.name == 'postgresql':
+                check = conn.execute(sa_text(
+                    "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'player_match_stats')"
+                )).scalar()
+            else:
+                check = conn.execute(sa_text(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='player_match_stats'"
+                )).fetchone()
+
+            if not check:
+                # No match stats table — try basic player data
+                row = conn.execute(sa_text(
+                    "SELECT elo, aim, util, team_play FROM players WHERE name = :name"
+                ), {"name": player_name}).fetchone()
+                if row:
+                    return {
+                        "elo": round(row[0], 0) if row[0] else None,
+                        "aim": round(row[1], 1) if row[1] else None,
+                        "util": round(row[2], 1) if row[2] else None,
+                        "team_play": round(row[3], 1) if row[3] else None,
+                    }
+                return None
+
+            # Fetch aggregate stats
+            # First get steamid
+            sid_row = conn.execute(sa_text(
+                "SELECT steamid FROM players WHERE name = :name"
+            ), {"name": player_name}).fetchone()
+            steamid = sid_row[0] if sid_row else None
+
+            if steamid:
+                where = "(pms.steamid = :sid OR pms.player_name = :name)"
+                params = {"sid": steamid, "name": player_name}
+            else:
+                where = "pms.player_name = :name"
+                params = {"name": player_name}
+
+            is_pg = sync_engine.name == 'postgresql'
+            # PostgreSQL needs ::numeric cast for ROUND on floats
+            cast = "::numeric" if is_pg else ""
+            query = sa_text(f"""
+                SELECT
+                    COUNT(*) as matches_played,
+                    COALESCE(SUM(pms.kills), 0) as total_kills,
+                    COALESCE(SUM(pms.deaths), 0) as total_deaths,
+                    COALESCE(SUM(pms.assists), 0) as total_assists,
+                    ROUND(AVG(NULLIF(pms.adr, 0)){cast}, 1) as avg_adr,
+                    ROUND(AVG(NULLIF(pms.rating, 0)){cast}, 2) as avg_rating,
+                    ROUND(AVG(NULLIF(pms.headshot_pct, 0)){cast}, 1) as avg_hs_pct,
+                    ROUND((SUM(pms.kills) * 1.0 / NULLIF(SUM(pms.deaths), 0)){cast}, 2) as overall_kd,
+                    COUNT(CASE WHEN pms.match_result = 'W' THEN 1 END) as wins,
+                    COUNT(CASE WHEN pms.match_result = 'L' THEN 1 END) as losses
+                FROM player_match_stats pms
+                JOIN match_details md ON pms.match_id = md.match_id
+                WHERE {where} AND pms.rating IS NOT NULL
+            """)
+            row = conn.execute(query, params).fetchone()
+            if row and row[0] > 0:
+                matches = row[0]
+                wins = row[8]
+                return {
+                    "matches_played": matches,
+                    "total_kills": row[1],
+                    "total_deaths": row[2],
+                    "total_assists": row[3],
+                    "avg_adr": float(row[4]) if row[4] else None,
+                    "avg_rating": float(row[5]) if row[5] else None,
+                    "avg_hs_pct": float(row[6]) if row[6] else None,
+                    "overall_kd": float(row[7]) if row[7] else None,
+                    "wins": wins,
+                    "losses": row[9],
+                    "winrate_pct": round((wins / matches) * 100, 1) if matches > 0 else 0,
+                }
+
+            # Fallback to basic player data
+            row = conn.execute(sa_text(
+                "SELECT elo, aim, util, team_play FROM players WHERE name = :name"
+            ), {"name": player_name}).fetchone()
+            if row:
+                return {
+                    "elo": round(row[0], 0) if row[0] else None,
+                    "aim": round(row[1], 1) if row[1] else None,
+                    "util": round(row[2], 1) if row[2] else None,
+                    "team_play": round(row[3], 1) if row[3] else None,
+                }
+    except Exception as e:
+        print(f"[WARN] Failed to fetch stats for {player_name}: {e}")
+    return None
 
 
 @app.post("/api/tournaments/{tournament_id}/join")
@@ -1645,7 +1751,7 @@ async def leave_tournament(
 
 @app.get("/api/tournaments/{tournament_id}/bracket")
 async def get_bracket(tournament_id: str, db: AsyncSession = Depends(get_db)):
-    """Get the full bracket tree for a tournament."""
+    """Get the full bracket tree for a tournament, enriched with player stats."""
     result = await db.execute(select(Tournament).filter(Tournament.id == tournament_id))
     tournament = result.scalars().first()
     if not tournament:
@@ -1653,7 +1759,30 @@ async def get_bracket(tournament_id: str, db: AsyncSession = Depends(get_db)):
     if tournament.status == "open":
         raise HTTPException(400, "Bracket not yet generated (tournament still open)")
 
-    return build_bracket_response(tournament)
+    bracket = build_bracket_response(tournament)
+
+    # Collect all unique player display_names and fetch stats
+    stats_cache: dict[str, dict | None] = {}
+    for rnd in bracket.get("rounds", []):
+        for match in rnd.get("matches", []):
+            for key in ("player1", "player2"):
+                p = match.get(key)
+                if p and p.get("display_name") and p["display_name"] not in stats_cache:
+                    stats_cache[p["display_name"]] = _get_player_stats_safe(p["display_name"])
+            # Also add stats for winner
+            w = match.get("winner")
+            if w and w.get("display_name") and w["display_name"] not in stats_cache:
+                stats_cache[w["display_name"]] = _get_player_stats_safe(w["display_name"])
+
+    # Inject stats into player objects
+    for rnd in bracket.get("rounds", []):
+        for match in rnd.get("matches", []):
+            for key in ("player1", "player2", "winner"):
+                p = match.get(key)
+                if p and p.get("display_name"):
+                    p["stats"] = stats_cache.get(p["display_name"])
+
+    return bracket
 
 
 @app.post("/api/matches/{match_id}/create-lobby")

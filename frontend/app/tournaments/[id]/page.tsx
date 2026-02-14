@@ -8,10 +8,26 @@ import {
     createTournamentLobby, advanceWinner,
 } from '@/app/lib/api';
 
+interface PlayerStats {
+    matches_played?: number;
+    avg_rating?: number | null;
+    overall_kd?: number | null;
+    avg_adr?: number | null;
+    avg_hs_pct?: number | null;
+    winrate_pct?: number | null;
+    wins?: number;
+    losses?: number;
+    elo?: number | null;
+    aim?: number | null;
+    util?: number | null;
+    team_play?: number | null;
+}
+
 interface PlayerInfo {
     id: string;
     username: string;
     display_name: string;
+    stats?: PlayerStats | null;
 }
 
 interface MatchData {
@@ -57,6 +73,7 @@ interface ParticipantData {
     username: string;
     display_name: string;
     seed: number | null;
+    stats?: PlayerStats | null;
 }
 
 export default function TournamentDetailPage() {
@@ -168,7 +185,7 @@ export default function TournamentDetailPage() {
 
     return (
         <div className="page-container" style={{ maxWidth: 1400 }}>
-            {/* Header */}
+            {/* Breadcrumb */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                 <Link href="/tournaments" style={{ color: 'var(--text-secondary)', textDecoration: 'none', fontSize: 14 }}>
                     Tournaments
@@ -176,10 +193,15 @@ export default function TournamentDetailPage() {
                 <span style={{ color: 'var(--text-muted)' }}>/</span>
             </div>
 
-            <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <h1 className="page-title">{tournament.name}</h1>
+            {/* Header with Prize */}
+            <div style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'stretch',
+                marginBottom: 24, gap: 24,
+            }}>
+                {/* Left: Title + Info */}
+                <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                        <h1 className="page-title" style={{ margin: 0 }}>{tournament.name}</h1>
                         <span style={{
                             fontSize: 12, fontWeight: 700, textTransform: 'uppercase',
                             padding: '3px 10px', borderRadius: 4,
@@ -190,9 +212,8 @@ export default function TournamentDetailPage() {
                             {tournament.status}
                         </span>
                     </div>
-                    <p className="page-subtitle">
+                    <p style={{ color: 'var(--text-secondary)', margin: '4px 0', fontSize: 14 }}>
                         {tournament.max_players}-player single elimination
-                        {tournament.prize_name && <span style={{ color: 'var(--gold)', marginLeft: 8 }}>Prize: {tournament.prize_name}</span>}
                         {tournament.tournament_date && (
                             <span style={{ marginLeft: 12, color: 'var(--text-muted)' }}>
                                 {new Date(tournament.tournament_date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
@@ -200,21 +221,36 @@ export default function TournamentDetailPage() {
                         )}
                     </p>
                 </div>
-                {/* Prize display with actual skin image */}
-                {tournament.prize_image_url && (
+
+                {/* Right: Prize Card */}
+                {(tournament.prize_image_url || tournament.prize_name) && (
                     <div style={{
-                        width: 120, height: 90, borderRadius: 12,
-                        background: '#111',
-                        border: '2px solid rgba(255,215,0,0.3)',
+                        display: 'flex', alignItems: 'center', gap: 16,
+                        padding: '12px 20px', borderRadius: 12,
+                        background: 'linear-gradient(135deg, rgba(255,215,0,0.08), rgba(255,140,0,0.04))',
+                        border: '1px solid rgba(255,215,0,0.25)',
                         flexShrink: 0,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        overflow: 'hidden',
                     }}>
-                        <img
-                            src={tournament.prize_image_url}
-                            alt={tournament.prize_name || 'Prize'}
-                            style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', padding: 6 }}
-                        />
+                        {tournament.prize_image_url && (
+                            <div style={{
+                                width: 100, height: 75,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            }}>
+                                <img
+                                    src={tournament.prize_image_url}
+                                    alt={tournament.prize_name || 'Prize'}
+                                    style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                                />
+                            </div>
+                        )}
+                        <div>
+                            <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: 'var(--gold)', letterSpacing: '0.1em', marginBottom: 2 }}>
+                                Prize
+                            </div>
+                            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', maxWidth: 180 }}>
+                                {tournament.prize_name || 'TBA'}
+                            </div>
+                        </div>
                     </div>
                 )}
             </div>
@@ -231,11 +267,16 @@ export default function TournamentDetailPage() {
                     padding: '20px 24px', marginBottom: 24, borderRadius: 12,
                     background: 'linear-gradient(135deg, rgba(255,215,0,0.15), rgba(255,140,0,0.1))',
                     border: '1px solid rgba(255,215,0,0.3)',
-                    textAlign: 'center',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16,
                 }}>
-                    <div style={{ fontSize: 32, marginBottom: 4 }}>🏆</div>
-                    <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--gold)' }}>
-                        {tournament.winner.display_name} wins!
+                    {tournament.prize_image_url && (
+                        <img src={tournament.prize_image_url} alt="" style={{ width: 48, height: 48, objectFit: 'contain' }} />
+                    )}
+                    <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: 28, marginBottom: 2 }}>🏆</div>
+                        <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--gold)' }}>
+                            {tournament.winner.display_name} wins!
+                        </div>
                     </div>
                 </div>
             )}
@@ -259,7 +300,7 @@ export default function TournamentDetailPage() {
                         )}
                     </div>
                     {/* Progress */}
-                    <div style={{ background: '#222', borderRadius: 6, height: 8, overflow: 'hidden', marginBottom: 16 }}>
+                    <div style={{ background: '#222', borderRadius: 6, height: 8, overflow: 'hidden', marginBottom: 20 }}>
                         <div style={{
                             width: `${(tournament.participant_count / tournament.max_players) * 100}%`,
                             height: '100%',
@@ -268,17 +309,17 @@ export default function TournamentDetailPage() {
                             transition: 'width 0.3s',
                         }} />
                     </div>
-                    {/* Participant list */}
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    {/* Participant Cards with Stats */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
                         {participants.map(p => (
-                            <div key={p.id} className="player-chip" style={{ padding: '6px 14px', borderRadius: 20, fontSize: 13 }}>
-                                {p.display_name}
-                            </div>
+                            <ParticipantCard key={p.id} participant={p} />
                         ))}
                         {Array.from({ length: tournament.max_players - tournament.participant_count }).map((_, i) => (
                             <div key={`empty-${i}`} style={{
-                                padding: '6px 14px', borderRadius: 20, fontSize: 13,
+                                padding: '14px 16px', borderRadius: 10,
                                 border: '1px dashed var(--border)', color: 'var(--text-muted)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                minHeight: 60, fontSize: 13,
                             }}>
                                 Open Slot
                             </div>
@@ -297,6 +338,93 @@ export default function TournamentDetailPage() {
                     onAdvanceWinner={handleAdvanceWinner}
                 />
             )}
+        </div>
+    );
+}
+
+
+// ──────────────────────────────────────────────
+// STAT HELPERS
+// ──────────────────────────────────────────────
+
+function getRatingColor(rating: number): string {
+    if (rating >= 1.3) return '#39ff14';
+    if (rating >= 1.1) return '#4da6ff';
+    if (rating >= 0.9) return 'var(--text-primary)';
+    if (rating >= 0.7) return 'var(--orange)';
+    return 'var(--red)';
+}
+
+function StatBadge({ label, value, color }: { label: string; value: string; color?: string }) {
+    return (
+        <div style={{ textAlign: 'center', minWidth: 44 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: color || 'var(--text-primary)', lineHeight: 1.2 }}>
+                {value}
+            </div>
+            <div style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.05em' }}>
+                {label}
+            </div>
+        </div>
+    );
+}
+
+function MiniStats({ stats }: { stats: PlayerStats }) {
+    // Has full match stats (HLTV rating, KD, etc.)
+    if (stats.avg_rating !== undefined && stats.avg_rating !== null) {
+        return (
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <StatBadge label="Rating" value={stats.avg_rating.toFixed(2)} color={getRatingColor(stats.avg_rating)} />
+                {stats.overall_kd != null && <StatBadge label="K/D" value={stats.overall_kd.toFixed(2)} />}
+                {stats.avg_adr != null && <StatBadge label="ADR" value={stats.avg_adr.toFixed(0)} />}
+                {stats.winrate_pct != null && <StatBadge label="Win%" value={`${stats.winrate_pct.toFixed(0)}%`} />}
+                {stats.matches_played != null && <StatBadge label="Maps" value={String(stats.matches_played)} color="var(--text-secondary)" />}
+            </div>
+        );
+    }
+    // Fallback: basic player data (elo, aim, etc.)
+    if (stats.elo !== undefined && stats.elo !== null) {
+        return (
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <StatBadge label="ELO" value={String(Math.round(stats.elo))} color="var(--gold)" />
+                {stats.aim != null && <StatBadge label="Aim" value={stats.aim.toFixed(1)} />}
+                {stats.util != null && <StatBadge label="Util" value={stats.util.toFixed(1)} />}
+                {stats.team_play != null && <StatBadge label="Team" value={stats.team_play.toFixed(1)} />}
+            </div>
+        );
+    }
+    return null;
+}
+
+
+// ──────────────────────────────────────────────
+// PARTICIPANT CARD
+// ──────────────────────────────────────────────
+
+function ParticipantCard({ participant }: { participant: ParticipantData }) {
+    const stats = participant.stats;
+    return (
+        <div style={{
+            padding: '12px 16px', borderRadius: 10,
+            background: 'var(--card-bg)',
+            border: '1px solid var(--border)',
+            display: 'flex', alignItems: 'center', gap: 12,
+        }}>
+            {/* Avatar */}
+            <div style={{
+                width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
+                background: 'var(--card-hover)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 14, fontWeight: 800, color: 'var(--text-secondary)',
+            }}>
+                {participant.display_name[0]?.toUpperCase()}
+            </div>
+            {/* Name + Stats */}
+            <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: stats ? 4 : 0 }}>
+                    {participant.display_name}
+                </div>
+                {stats && <MiniStats stats={stats} />}
+            </div>
         </div>
     );
 }
@@ -361,14 +489,12 @@ function BracketRound({
     onCreateLobby: (matchId: string) => void;
     onAdvanceWinner: (matchId: string, winnerId: string) => void;
 }) {
-    // Calculate spacing: each subsequent round needs more vertical space to center-align
-    // with the previous round's match pairs
-    const matchHeight = 140; // approximate height of a match card + margin
+    const matchHeight = 180;
     const roundSpacing = Math.pow(2, round.round_number - 1);
     const topPadding = (roundSpacing - 1) * (matchHeight / 2);
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 260 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 280 }}>
             {/* Round Header */}
             <div style={{
                 textAlign: 'center', padding: '8px 16px', marginBottom: 12,
@@ -435,7 +561,7 @@ function MatchCard({
             borderRadius: 10,
             padding: 12,
             margin: '0 8px',
-            minWidth: 240,
+            minWidth: 260,
             position: 'relative',
         }}>
             {isFinal && (
@@ -539,6 +665,10 @@ function PlayerSlot({
         );
     }
 
+    const stats = player.stats;
+    const hasRating = stats?.avg_rating != null;
+    const hasKd = stats?.overall_kd != null;
+
     return (
         <div
             onClick={isAdmin && isActive ? onSelect : undefined}
@@ -573,16 +703,29 @@ function PlayerSlot({
                 {isWinner ? '✓' : player.display_name[0]?.toUpperCase()}
             </div>
 
+            {/* Name */}
             <span style={{
                 fontSize: 13, fontWeight: isWinner ? 700 : 500,
                 color: isWinner ? 'var(--neon-green)' : 'var(--text-primary)',
-                flex: 1,
+                flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}>
                 {player.display_name}
             </span>
 
+            {/* Inline stats in bracket */}
+            {hasRating && (
+                <span style={{ fontSize: 11, fontWeight: 700, color: getRatingColor(stats!.avg_rating!), flexShrink: 0 }}>
+                    {stats!.avg_rating!.toFixed(2)}
+                </span>
+            )}
+            {hasKd && (
+                <span style={{ fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>
+                    {stats!.overall_kd!.toFixed(2)}
+                </span>
+            )}
+
             {isAdmin && isActive && (
-                <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>click to win</span>
+                <span style={{ fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>click to win</span>
             )}
         </div>
     );
