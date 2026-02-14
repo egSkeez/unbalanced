@@ -4,3 +4,7 @@ requests
 fastapi
 uvicorn
 python-multipart
+asyncpg
+psycopg2-binary
+sqlalchemy
+python-dotenv
