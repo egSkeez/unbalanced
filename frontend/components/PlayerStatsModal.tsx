@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { getPlayerStats } from '../lib/api';
+import { getPlayerStats } from '@/app/lib/api';
 
 interface PlayerStatsModalProps {
     playerName: string;

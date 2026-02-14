@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, use } from 'react';
 import { getCaptainInfo, submitVote, getVetoState, vetoAction, getDraftState, getConstants } from '../../lib/api';
-import PlayerStatsModal from '../../components/PlayerStatsModal';
+import PlayerStatsModal from '@/components/PlayerStatsModal';
 
 export default function VotePage({ params }: { params: Promise<{ token: string }> }) {
     const resolvedParams = use(params);

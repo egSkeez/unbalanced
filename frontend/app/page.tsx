@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import Cookies from 'js-cookie';
 import { useAuth } from '@/context/AuthContext';
 import { getPlayers, runDraft, getDraftState, rerollDraft, clearDraft, getConstants, initVeto, getVetoState, vetoAction, getLobby, createLobby, broadcastToDiscord } from './lib/api';
-import PlayerStatsModal from './components/PlayerStatsModal';
+import PlayerStatsModal from '@/components/PlayerStatsModal';
 import { getPingColor } from '@/lib/utils';
 
 interface Player {

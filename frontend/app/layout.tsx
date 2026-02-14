@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import Sidebar from "./components/Sidebar";
-import AuthWrapper from "./components/AuthWrapper";
+import Sidebar from "@/components/Sidebar";
+import AuthWrapper from "@/components/AuthWrapper";
 
 export const metadata: Metadata = {
   title: "CS2 Pro Balancer",

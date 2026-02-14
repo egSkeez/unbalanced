@@ -446,7 +446,7 @@ function MatchCard({
             <PlayerSlot
                 player={match.player1}
                 isWinner={match.winner?.id === match.player1?.id}
-                isActive={isActive && !match.winner}
+                isActive={!!(isActive && !match.winner)}
                 isAdmin={isAdmin}
                 onSelect={() => match.player1 && onAdvanceWinner(match.id, match.player1.id)}
             />
@@ -461,7 +461,7 @@ function MatchCard({
             <PlayerSlot
                 player={match.player2}
                 isWinner={match.winner?.id === match.player2?.id}
-                isActive={isActive && !match.winner}
+                isActive={!!(isActive && !match.winner)}
                 isAdmin={isAdmin}
                 onSelect={() => match.player2 && onAdvanceWinner(match.id, match.player2.id)}
             />
