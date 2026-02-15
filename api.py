@@ -1562,7 +1562,12 @@ async def create_tournament(
 @app.get("/api/tournaments/{tournament_id}")
 async def get_tournament(tournament_id: str, db: AsyncSession = Depends(get_db)):
     """Get tournament details including participant list with stats."""
-    result = await db.execute(select(Tournament).filter(Tournament.id == tournament_id))
+    from sqlalchemy.orm import selectinload
+    result = await db.execute(
+        select(Tournament)
+        .options(selectinload(Tournament.participants), selectinload(Tournament.matches))
+        .filter(Tournament.id == tournament_id)
+    )
     tournament = result.scalars().first()
     if not tournament:
         raise HTTPException(404, "Tournament not found")
@@ -1755,7 +1760,12 @@ async def leave_tournament(
 @app.get("/api/tournaments/{tournament_id}/bracket")
 async def get_bracket(tournament_id: str, db: AsyncSession = Depends(get_db)):
     """Get the full bracket/standings for a tournament, enriched with player stats."""
-    result = await db.execute(select(Tournament).filter(Tournament.id == tournament_id))
+    from sqlalchemy.orm import selectinload
+    result = await db.execute(
+        select(Tournament)
+        .options(selectinload(Tournament.participants), selectinload(Tournament.matches))
+        .filter(Tournament.id == tournament_id)
+    )
     tournament = result.scalars().first()
     if not tournament:
         raise HTTPException(404, "Tournament not found")
