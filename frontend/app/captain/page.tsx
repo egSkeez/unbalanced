@@ -75,7 +75,14 @@ export default function CaptainPage() {
         if (authLoading || !user || session) return;
         getCaptainState(user.display_name)
             .then(state => {
-                if (state?.pin) setSession(state);
+                // Only restore if the state has a valid draft AND the user is on one of the teams
+                if (state?.pin && state?.draft) {
+                    const isInDraft = state.draft.team1?.includes(user.display_name) ||
+                        state.draft.team2?.includes(user.display_name);
+                    if (isInDraft) {
+                        setSession(state);
+                    }
+                }
             })
             .catch(() => {
                 // Not a captain yet
@@ -86,6 +93,34 @@ export default function CaptainPage() {
     const pollState = useCallback(async () => {
         if (!session) return;
         try {
+            // Also check if the draft itself has changed
+            const currentDraft = await getDraftState(token || undefined);
+            if (!currentDraft.active) {
+                // Draft was cleared — reset everything
+                setSession(null);
+                setDraftState(null);
+                setError('');
+                return;
+            }
+
+            // Check if this is a different draft (teams changed)
+            const sessionDraft = session.draft;
+            if (sessionDraft) {
+                const teamsChanged =
+                    JSON.stringify(currentDraft.team1?.sort()) !== JSON.stringify(sessionDraft.team1?.slice().sort()) ||
+                    JSON.stringify(currentDraft.team2?.sort()) !== JSON.stringify(sessionDraft.team2?.slice().sort());
+                if (teamsChanged) {
+                    // New draft detected — clear captain session and refresh draft state
+                    setSession(null);
+                    setDraftState(currentDraft);
+                    setError('');
+                    return;
+                }
+            }
+
+            // Update the preview draft state
+            setDraftState(currentDraft);
+
             const state = await getCaptainState(session.captain_name);
             const anyReroll = state.all_votes?.some((v: { vote: string }) => v.vote === 'Reroll');
             if (anyReroll) {
@@ -123,8 +158,12 @@ export default function CaptainPage() {
         const interval = setInterval(async () => {
             try {
                 const draft = await getDraftState(token || undefined);
-                if (draft.active) setDraftState(draft);
-                else setDraftState(null);
+                if (draft.active) {
+                    setDraftState(draft);
+                } else {
+                    setDraftState(null);
+                    setSession(null); // Ensure session is cleared if draft goes away
+                }
             } catch { /* ignore */ }
         }, 3000);
         return () => clearInterval(interval);
