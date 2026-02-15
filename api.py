@@ -18,11 +18,11 @@ from auth import (
     init_user_accounts, create_access_token, get_current_user, get_current_user_optional,
     get_db, hash_password, verify_password
 )
-from models import User, Tournament, TournamentParticipant, TournamentMatch
+from models import User, Tournament, TournamentParticipant, TournamentMatch, TournamentFormat, TournamentStatus
 from schemas import UserCreate, UserLogin, UserOut, Token
 from tournament_logic import (
-    generate_single_elimination_bracket, advance_winner,
-    build_bracket_response, serialize_tournament
+    advance_winner, start_tournament, report_match,
+    serialize_tournament, get_generator,
 )
 
 # In-memory store for player pings (username -> ms)
@@ -164,13 +164,20 @@ class GoogleLoginRequest(BaseModel):
 
 class TournamentCreateRequest(BaseModel):
     name: str
+    description: Optional[str] = None
+    format: str = "single_elimination"  # single_elimination | round_robin
     prize_image_url: Optional[str] = None
     prize_name: Optional[str] = None
-    max_players: int = 8  # 4, 8, 16, or 32
+    prize_pool: Optional[str] = None
+    max_players: int = 8
     tournament_date: Optional[str] = None  # e.g. "2026-03-15"
 
 class AdvanceWinnerRequest(BaseModel):
     winner_id: str
+
+class ReportMatchRequest(BaseModel):
+    winner_id: str
+    score: Optional[str] = None  # e.g. "16-12"
 
 class TournamentLobbyRequest(BaseModel):
     admin_name: str = "Skeez"
@@ -1500,16 +1507,20 @@ async def create_tournament(
     """Admin-only: Create a new tournament."""
     if current_user.role != "admin":
         raise HTTPException(403, "Only admins can create tournaments")
-    if req.max_players not in (4, 8, 16, 32):
-        raise HTTPException(400, "max_players must be 4, 8, 16, or 32")
+    if req.format not in (TournamentFormat.single_elimination.value, TournamentFormat.round_robin.value):
+        raise HTTPException(400, "format must be 'single_elimination' or 'round_robin'")
 
     tournament = Tournament(
         name=req.name,
+        description=req.description,
+        format=req.format,
         prize_image_url=req.prize_image_url,
         prize_name=req.prize_name,
+        prize_pool=req.prize_pool,
         max_players=req.max_players,
         tournament_date=req.tournament_date,
         created_by=current_user.id,
+        status=TournamentStatus.registration.value,
     )
     db.add(tournament)
     await db.commit()
@@ -1656,7 +1667,7 @@ async def join_tournament(
     tournament = result.scalars().first()
     if not tournament:
         raise HTTPException(404, "Tournament not found")
-    if tournament.status != "open":
+    if tournament.status not in ("open", TournamentStatus.registration.value):
         raise HTTPException(400, "Tournament is not open for enrollment")
 
     # Check if already joined
@@ -1692,7 +1703,7 @@ async def join_tournament(
     # AUTO-GENERATE BRACKET when capacity reached
     if new_count == tournament.max_players:
         await db.commit()  # commit the participant first
-        tournament = await generate_single_elimination_bracket(tournament_id, db)
+        tournament = await start_tournament(tournament_id, db)
         return {
             "status": "bracket_generated",
             "message": f"Tournament is full! Bracket generated with {new_count} players.",
@@ -1718,7 +1729,7 @@ async def leave_tournament(
     tournament = result.scalars().first()
     if not tournament:
         raise HTTPException(404, "Tournament not found")
-    if tournament.status != "open":
+    if tournament.status not in ("open", TournamentStatus.registration.value):
         raise HTTPException(400, "Cannot leave a tournament that has already started")
 
     result = await db.execute(
@@ -1738,15 +1749,17 @@ async def leave_tournament(
 
 @app.get("/api/tournaments/{tournament_id}/bracket")
 async def get_bracket(tournament_id: str, db: AsyncSession = Depends(get_db)):
-    """Get the full bracket tree for a tournament, enriched with player stats."""
+    """Get the full bracket/standings for a tournament, enriched with player stats."""
     result = await db.execute(select(Tournament).filter(Tournament.id == tournament_id))
     tournament = result.scalars().first()
     if not tournament:
         raise HTTPException(404, "Tournament not found")
-    if tournament.status == "open":
-        raise HTTPException(400, "Bracket not yet generated (tournament still open)")
+    if tournament.status in ("open", TournamentStatus.registration.value):
+        raise HTTPException(400, "Bracket not yet generated (tournament still in registration)")
 
-    bracket = build_bracket_response(tournament)
+    # Use the correct response builder based on format
+    generator = get_generator(tournament)
+    bracket = generator.build_response(tournament)
 
     # Collect all unique player display_names and fetch stats
     stats_cache: dict[str, dict | None] = {}
@@ -1821,6 +1834,39 @@ async def advance_match_winner(
         raise HTTPException(400, str(e))
 
     return {"status": "ok", "message": "Winner advanced"}
+
+
+@app.post("/api/tournaments/{tournament_id}/start")
+async def start_tournament_endpoint(
+    tournament_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin-only: Lock the roster and generate bracket/schedule. Works for any format."""
+    if current_user.role != "admin":
+        raise HTTPException(403, "Only admins can start tournaments")
+    try:
+        tournament = await start_tournament(tournament_id, db)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"status": "started", "message": f"Tournament started with format '{tournament.format}'"}
+
+
+@app.post("/api/matches/{match_id}/report")
+async def report_match_endpoint(
+    match_id: str,
+    req: ReportMatchRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin-only: Report match result with score. Auto-advances winner for Single Elimination."""
+    if current_user.role != "admin":
+        raise HTTPException(403, "Only admins can report matches")
+    try:
+        match = await report_match(match_id, req.winner_id, req.score, db)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"status": "ok", "message": "Match result recorded", "score": match.score}
 
 
 @app.delete("/api/tournaments/{tournament_id}")

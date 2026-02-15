@@ -31,7 +31,7 @@ export default function TournamentsPage() {
     const [filter, setFilter] = useState<string>('');
     const [joining, setJoining] = useState<string | null>(null);
     const [showCreate, setShowCreate] = useState(false);
-    const [createForm, setCreateForm] = useState({ name: '', prize_image_url: '', prize_name: '', max_players: 8, tournament_date: '' });
+    const [createForm, setCreateForm] = useState({ name: '', format: 'single_elimination', prize_image_url: '', prize_name: '', prize_pool: '', max_players: 8, tournament_date: '' });
     const [error, setError] = useState('');
 
     // Skin search state
@@ -130,13 +130,15 @@ export default function TournamentsPage() {
         try {
             await createTournament({
                 name: createForm.name,
+                format: createForm.format,
                 prize_image_url: createForm.prize_image_url || undefined,
                 prize_name: createForm.prize_name || undefined,
+                prize_pool: createForm.prize_pool || undefined,
                 max_players: createForm.max_players,
                 tournament_date: createForm.tournament_date || undefined,
             }, token);
             setShowCreate(false);
-            setCreateForm({ name: '', prize_image_url: '', prize_name: '', max_players: 8, tournament_date: '' });
+            setCreateForm({ name: '', format: 'single_elimination', prize_image_url: '', prize_name: '', prize_pool: '', max_players: 8, tournament_date: '' });
             setSkinQuery('');
             await loadTournaments();
         } catch (e: unknown) {
@@ -163,6 +165,7 @@ export default function TournamentsPage() {
 
     const statusColors: Record<string, string> = {
         open: 'var(--neon-green)',
+        registration: 'var(--neon-green)',
         active: 'var(--orange)',
         completed: 'var(--text-muted)',
     };
@@ -174,7 +177,7 @@ export default function TournamentsPage() {
             <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
                     <h1 className="page-title">1v1 Tournaments</h1>
-                    <p className="page-subtitle">Compete in single-elimination brackets for CS2 prizes</p>
+                    <p className="page-subtitle">Compete in CS2 tournaments for prizes</p>
                 </div>
                 {user?.role === 'admin' && (
                     <button className="btn btn-primary" onClick={() => setShowCreate(!showCreate)}>
@@ -202,6 +205,18 @@ export default function TournamentsPage() {
                                 onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))}
                                 style={inputStyle}
                             />
+                        </div>
+
+                        <div>
+                            <label style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' }}>Format</label>
+                            <select
+                                value={createForm.format}
+                                onChange={e => setCreateForm(f => ({ ...f, format: e.target.value }))}
+                                style={inputStyle}
+                            >
+                                <option value="single_elimination">Single Elimination</option>
+                                <option value="round_robin">Round Robin</option>
+                            </select>
                         </div>
 
                         <div>
@@ -313,7 +328,7 @@ export default function TournamentsPage() {
 
             {/* Filters */}
             <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
-                {['', 'open', 'active', 'completed'].map(f => (
+                {['', 'registration', 'open', 'active', 'completed'].map(f => (
                     <button
                         key={f}
                         className={`btn btn-sm ${filter === f ? 'btn-primary' : ''}`}

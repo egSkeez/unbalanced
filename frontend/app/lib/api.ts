@@ -128,7 +128,11 @@ export const setRoommates = (groups: string[][]) =>
 // Tournaments
 export const getTournaments = (status?: string) =>
     fetchApi(`/api/tournaments${status ? `?status=${status}` : ''}`);
-export const createTournament = (data: { name: string; prize_image_url?: string; prize_name?: string; max_players: number; tournament_date?: string }, token: string) =>
+export const createTournament = (data: {
+    name: string; description?: string; format?: string;
+    prize_image_url?: string; prize_name?: string; prize_pool?: string;
+    max_players: number; tournament_date?: string;
+}, token: string) =>
     fetchApi('/api/tournaments', { method: 'POST', body: JSON.stringify(data), headers: { 'Authorization': `Bearer ${token}` } });
 export const getTournament = (id: string) =>
     fetchApi(`/api/tournaments/${id}`);
@@ -136,12 +140,16 @@ export const joinTournament = (id: string, token: string) =>
     fetchApi(`/api/tournaments/${id}/join`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
 export const leaveTournament = (id: string, token: string) =>
     fetchApi(`/api/tournaments/${id}/leave`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+export const startTournament = (id: string, token: string) =>
+    fetchApi(`/api/tournaments/${id}/start`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
 export const getTournamentBracket = (id: string) =>
     fetchApi(`/api/tournaments/${id}/bracket`);
 export const createTournamentLobby = (matchId: string, adminName: string, token: string) =>
     fetchApi(`/api/matches/${matchId}/create-lobby`, { method: 'POST', body: JSON.stringify({ admin_name: adminName }), headers: { 'Authorization': `Bearer ${token}` } });
 export const advanceWinner = (matchId: string, winnerId: string, token: string) =>
     fetchApi(`/api/matches/${matchId}/advance-winner`, { method: 'POST', body: JSON.stringify({ winner_id: winnerId }), headers: { 'Authorization': `Bearer ${token}` } });
+export const reportMatch = (matchId: string, winnerId: string, score: string | null, token: string) =>
+    fetchApi(`/api/matches/${matchId}/report`, { method: 'POST', body: JSON.stringify({ winner_id: winnerId, score }), headers: { 'Authorization': `Bearer ${token}` } });
 export const deleteTournament = (id: string, token: string) =>
     fetchApi(`/api/tournaments/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
 

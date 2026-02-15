@@ -1,102 +1,264 @@
-# tournament_logic.py — Single-elimination bracket generation & management
+# tournament_logic.py — Tournament engine with Strategy Pattern
+# Supports: Single Elimination (with byes), Round Robin
 import random
 import math
 import uuid
+from abc import ABC, abstractmethod
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import update
-from models import Tournament, TournamentParticipant, TournamentMatch, User
+from models import (
+    Tournament, TournamentParticipant, TournamentMatch, User,
+    TournamentFormat, TournamentStatus,
+)
 
 
-async def generate_single_elimination_bracket(tournament_id: str, db: AsyncSession):
+# ══════════════════════════════════════════════════════════════
+# STRATEGY PATTERN — Abstract Base + Concrete Implementations
+# ══════════════════════════════════════════════════════════════
+
+class TournamentGenerator(ABC):
+    """Abstract base for all tournament format generators."""
+
+    @abstractmethod
+    async def generate_bracket(
+        self,
+        tournament: Tournament,
+        participants: list[TournamentParticipant],
+        db: AsyncSession,
+    ) -> Tournament:
+        """Generate all matches for the tournament. Returns the updated tournament."""
+        ...
+
+    @abstractmethod
+    def build_response(self, tournament: Tournament) -> dict:
+        """Build the API response payload for this format."""
+        ...
+
+
+class SingleEliminationGenerator(TournamentGenerator):
     """
-    Generates a full single-elimination bracket for a tournament.
+    Single-elimination bracket generator with BYE support.
 
-    1. Fetches and shuffles participants
-    2. Creates Round 1 matches with assigned players
-    3. Creates empty placeholder matches for subsequent rounds
-    4. Links all matches via next_match_id for tree traversal
-
-    Supports 4, 8, 16, or 32 players (must be power of 2).
+    If player count is not a power of 2 (e.g. 14 players):
+    - Rounds up to the next power of 2 (16)
+    - Top-seeded players receive byes (auto-advance to Round 2)
+    - Bye matches are created with only 1 player and auto-resolved
     """
-    # Fetch tournament
+
+    async def generate_bracket(
+        self,
+        tournament: Tournament,
+        participants: list[TournamentParticipant],
+        db: AsyncSession,
+    ) -> Tournament:
+        num_players = len(participants)
+        if num_players < 2:
+            raise ValueError("Need at least 2 participants")
+
+        # Shuffle and assign seeds
+        random.shuffle(participants)
+        for i, p in enumerate(participants):
+            p.seed = i + 1
+
+        # Calculate bracket size (next power of 2)
+        bracket_size = 1
+        while bracket_size < num_players:
+            bracket_size *= 2
+
+        total_rounds = int(math.log2(bracket_size))
+        num_byes = bracket_size - num_players
+
+        # Standard bracket seeding: place byes so top seeds get them
+        # Slot mapping: bracket_size slots, first `num_players` get real players,
+        # remaining slots are BYEs
+        slots: list[str | None] = []
+        for i in range(bracket_size):
+            if i < num_players:
+                slots.append(participants[i].user_id)
+            else:
+                slots.append(None)  # BYE
+
+        # Build matches from final round backward for next_match_id linking
+        all_matches: dict[tuple[int, int], TournamentMatch] = {}
+
+        for round_num in range(total_rounds, 0, -1):
+            matches_in_round = bracket_size // (2 ** round_num)
+            for match_idx in range(matches_in_round):
+                match_id = str(uuid.uuid4())
+
+                # Link to next round
+                next_match_id = None
+                if round_num < total_rounds:
+                    next_key = (round_num + 1, match_idx // 2)
+                    if next_key in all_matches:
+                        next_match_id = all_matches[next_key].id
+
+                match = TournamentMatch(
+                    id=match_id,
+                    tournament_id=tournament.id,
+                    round_number=round_num,
+                    match_index=match_idx,
+                    next_match_id=next_match_id,
+                )
+
+                # Round 1: assign players and handle byes
+                if round_num == 1:
+                    p1_idx = match_idx * 2
+                    p2_idx = match_idx * 2 + 1
+                    p1_id = slots[p1_idx] if p1_idx < len(slots) else None
+                    p2_id = slots[p2_idx] if p2_idx < len(slots) else None
+
+                    match.player1_id = p1_id
+                    match.player2_id = p2_id
+
+                    # Auto-resolve BYE: if one player is missing, the other wins
+                    if p1_id and not p2_id:
+                        match.winner_id = p1_id
+                    elif p2_id and not p1_id:
+                        match.winner_id = p2_id
+
+                all_matches[(round_num, match_idx)] = match
+                db.add(match)
+
+        # Propagate BYE winners to Round 2
+        for (rn, mi), match in all_matches.items():
+            if rn == 1 and match.winner_id and match.next_match_id:
+                next_key = (2, mi // 2)
+                next_match = all_matches.get(next_key)
+                if next_match:
+                    if mi % 2 == 0:
+                        next_match.player1_id = match.winner_id
+                    else:
+                        next_match.player2_id = match.winner_id
+
+        tournament.status = TournamentStatus.active.value
+        await db.commit()
+        return tournament
+
+    def build_response(self, tournament: Tournament) -> dict:
+        return build_bracket_response(tournament)
+
+
+class RoundRobinGenerator(TournamentGenerator):
+    """
+    Round Robin generator — every player plays every other player once.
+
+    Uses the "circle method" for scheduling:
+    - N players require N-1 rounds (N rounds if N is odd, with a BYE each round)
+    - Each round has N/2 matches
+    - group_id=0 for a single-group round robin
+    """
+
+    async def generate_bracket(
+        self,
+        tournament: Tournament,
+        participants: list[TournamentParticipant],
+        db: AsyncSession,
+    ) -> Tournament:
+        num_players = len(participants)
+        if num_players < 2:
+            raise ValueError("Need at least 2 participants")
+
+        random.shuffle(participants)
+        for i, p in enumerate(participants):
+            p.seed = i + 1
+
+        player_ids = [p.user_id for p in participants]
+
+        # Circle method: if odd number, add a phantom BYE player
+        ids = list(player_ids)
+        if len(ids) % 2 == 1:
+            ids.append(None)  # BYE placeholder
+
+        n = len(ids)
+        num_rounds = n - 1
+        match_index = 0
+
+        for round_num in range(1, num_rounds + 1):
+            for i in range(n // 2):
+                p1 = ids[i]
+                p2 = ids[n - 1 - i]
+
+                # Skip matches involving the BYE placeholder
+                if p1 is None or p2 is None:
+                    continue
+
+                match = TournamentMatch(
+                    id=str(uuid.uuid4()),
+                    tournament_id=tournament.id,
+                    round_number=round_num,
+                    match_index=match_index,
+                    group_id=0,
+                    player1_id=p1,
+                    player2_id=p2,
+                )
+                db.add(match)
+                match_index += 1
+
+            # Rotate: fix first element, rotate the rest
+            ids = [ids[0]] + [ids[-1]] + ids[1:-1]
+
+        tournament.status = TournamentStatus.active.value
+        await db.commit()
+        return tournament
+
+    def build_response(self, tournament: Tournament) -> dict:
+        return build_round_robin_response(tournament)
+
+
+# ══════════════════════════════════════════════════════════════
+# FACTORY — Returns the correct generator for a tournament
+# ══════════════════════════════════════════════════════════════
+
+def get_generator(tournament: Tournament) -> TournamentGenerator:
+    """Factory: return the correct generator based on tournament format."""
+    fmt = tournament.format
+    if fmt == TournamentFormat.single_elimination.value:
+        return SingleEliminationGenerator()
+    elif fmt == TournamentFormat.round_robin.value:
+        return RoundRobinGenerator()
+    else:
+        raise ValueError(f"Unknown tournament format: {fmt}")
+
+
+# ══════════════════════════════════════════════════════════════
+# PUBLIC API — Called from endpoints
+# ══════════════════════════════════════════════════════════════
+
+async def start_tournament(tournament_id: str, db: AsyncSession) -> Tournament:
+    """
+    Start a tournament: lock the roster and generate all matches.
+    Works for any format via the Strategy Pattern.
+    """
     result = await db.execute(select(Tournament).filter(Tournament.id == tournament_id))
     tournament = result.scalars().first()
     if not tournament:
         raise ValueError("Tournament not found")
-    if tournament.status != "open":
-        raise ValueError("Tournament is not in 'open' status")
+    if tournament.status != TournamentStatus.registration.value:
+        raise ValueError("Tournament is not in 'registration' status")
 
-    # Fetch participants
     result = await db.execute(
         select(TournamentParticipant)
         .filter(TournamentParticipant.tournament_id == tournament_id)
     )
     participants = list(result.scalars().all())
+    if len(participants) < 2:
+        raise ValueError("Need at least 2 participants to start")
 
-    num_players = len(participants)
-    if num_players != tournament.max_players:
-        raise ValueError(f"Expected {tournament.max_players} players, got {num_players}")
-    if num_players < 2 or (num_players & (num_players - 1)) != 0:
-        raise ValueError(f"Player count must be a power of 2, got {num_players}")
-
-    # Shuffle for random seeding
-    random.shuffle(participants)
-    for i, p in enumerate(participants):
-        p.seed = i + 1
-
-    total_rounds = int(math.log2(num_players))
-
-    # Build all matches bottom-up: create later rounds first so we can link them.
-    # Structure: rounds[round_num] = list of TournamentMatch objects
-    # Round 1 has num_players/2 matches, Round 2 has num_players/4, ..., Final has 1.
-
-    all_matches = {}  # (round_number, match_index) -> TournamentMatch
-
-    # Create matches from the final round backward so we have IDs for next_match_id
-    for round_num in range(total_rounds, 0, -1):
-        matches_in_round = num_players // (2 ** round_num)
-        for match_idx in range(matches_in_round):
-            match_id = str(uuid.uuid4())
-
-            # Link to next round match
-            next_match_id = None
-            if round_num < total_rounds:
-                # This match feeds into the next round
-                next_round_match_idx = match_idx // 2
-                next_key = (round_num + 1, next_round_match_idx)
-                if next_key in all_matches:
-                    next_match_id = all_matches[next_key].id
-
-            match = TournamentMatch(
-                id=match_id,
-                tournament_id=tournament_id,
-                round_number=round_num,
-                match_index=match_idx,
-                next_match_id=next_match_id,
-            )
-
-            # Only Round 1 gets actual players
-            if round_num == 1:
-                p1_idx = match_idx * 2
-                p2_idx = match_idx * 2 + 1
-                match.player1_id = participants[p1_idx].user_id
-                match.player2_id = participants[p2_idx].user_id
-
-            all_matches[(round_num, match_idx)] = match
-            db.add(match)
-
-    # Lock tournament
-    tournament.status = "active"
-    await db.commit()
-
-    return tournament
+    generator = get_generator(tournament)
+    return await generator.generate_bracket(tournament, participants, db)
 
 
-async def advance_winner(match_id: str, winner_id: str, db: AsyncSession):
+# Legacy alias for backward compatibility with existing auto-start-on-full logic
+async def generate_single_elimination_bracket(tournament_id: str, db: AsyncSession):
+    """Legacy wrapper — calls start_tournament internally."""
+    return await start_tournament(tournament_id, db)
+
+
+async def report_match(match_id: str, winner_id: str, score: str | None, db: AsyncSession):
     """
-    Sets the winner of a match and propagates them to the next match in the bracket.
-    If the next match (finals) gets its winner set, marks the tournament as completed.
+    Report the result of a match. For Single Elimination, auto-advances the winner.
+    For Round Robin, just records the result.
     """
     result = await db.execute(select(TournamentMatch).filter(TournamentMatch.id == match_id))
     match = result.scalars().first()
@@ -108,33 +270,59 @@ async def advance_winner(match_id: str, winner_id: str, db: AsyncSession):
         raise ValueError("Winner must be one of the two players in this match")
 
     match.winner_id = winner_id
+    if score:
+        match.score = score
 
-    # Propagate to next match
-    if match.next_match_id:
-        result = await db.execute(
-            select(TournamentMatch).filter(TournamentMatch.id == match.next_match_id)
-        )
-        next_match = result.scalars().first()
-        if next_match:
-            # Determine which slot (player1 or player2) to fill
-            # Even match_index -> player1 slot, Odd match_index -> player2 slot
-            if match.match_index % 2 == 0:
-                next_match.player1_id = winner_id
-            else:
-                next_match.player2_id = winner_id
-    else:
-        # This is the final match — mark tournament as completed
-        result = await db.execute(
-            select(Tournament).filter(Tournament.id == match.tournament_id)
-        )
-        tournament = result.scalars().first()
-        if tournament:
-            tournament.status = "completed"
-            tournament.winner_id = winner_id
+    # Fetch tournament to determine format
+    result = await db.execute(select(Tournament).filter(Tournament.id == match.tournament_id))
+    tournament = result.scalars().first()
+
+    if tournament and tournament.format == TournamentFormat.single_elimination.value:
+        # Propagate winner to next match in bracket tree
+        if match.next_match_id:
+            result = await db.execute(
+                select(TournamentMatch).filter(TournamentMatch.id == match.next_match_id)
+            )
+            next_match = result.scalars().first()
+            if next_match:
+                if match.match_index % 2 == 0:
+                    next_match.player1_id = winner_id
+                else:
+                    next_match.player2_id = winner_id
+        else:
+            # Final match — tournament complete
+            if tournament:
+                tournament.status = TournamentStatus.completed.value
+                tournament.winner_id = winner_id
+
+    elif tournament and tournament.format == TournamentFormat.round_robin.value:
+        # Check if all matches are complete
+        all_matches = [m for m in tournament.matches]
+        all_done = all(m.winner_id is not None for m in all_matches if m.id != match_id)
+        if all_done:
+            # Determine winner by most wins
+            wins: dict[str, int] = {}
+            for m in all_matches:
+                w = m.winner_id if m.id != match_id else winner_id
+                if w:
+                    wins[w] = wins.get(w, 0) + 1
+            if wins:
+                tournament.winner_id = max(wins, key=wins.get)
+                tournament.status = TournamentStatus.completed.value
 
     await db.commit()
     return match
 
+
+# Legacy alias
+async def advance_winner(match_id: str, winner_id: str, db: AsyncSession):
+    """Legacy wrapper for backward compatibility."""
+    return await report_match(match_id, winner_id, None, db)
+
+
+# ══════════════════════════════════════════════════════════════
+# SERIALIZATION HELPERS
+# ══════════════════════════════════════════════════════════════
 
 def get_round_name(round_number: int, total_rounds: int) -> str:
     """Returns a human-readable name for the round."""
@@ -150,13 +338,11 @@ def get_round_name(round_number: int, total_rounds: int) -> str:
 
 
 def build_bracket_response(tournament: Tournament) -> dict:
-    """
-    Builds a structured bracket response from a tournament and its matches.
-    Returns a dict suitable for the frontend bracket component.
-    """
+    """Build a structured bracket response for Single Elimination."""
     if not tournament.matches:
         return {
             "tournament": serialize_tournament(tournament),
+            "format": "single_elimination",
             "rounds": [],
             "total_rounds": 0,
         }
@@ -177,8 +363,66 @@ def build_bracket_response(tournament: Tournament) -> dict:
 
     return {
         "tournament": serialize_tournament(tournament),
+        "format": "single_elimination",
         "rounds": rounds,
         "total_rounds": total_rounds,
+    }
+
+
+def build_round_robin_response(tournament: Tournament) -> dict:
+    """Build a structured response for Round Robin with standings table."""
+    matches = tournament.matches or []
+    participants = tournament.participants or []
+
+    # Build standings from match results
+    standings: dict[str, dict] = {}
+    for p in participants:
+        uid = p.user_id
+        standings[uid] = {
+            "user_id": uid,
+            "username": p.user.username if p.user else "Unknown",
+            "display_name": p.user.display_name if p.user else "Unknown",
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "points": 0,
+            "matches_played": 0,
+        }
+
+    for m in matches:
+        if m.winner_id:
+            loser_id = m.player2_id if m.winner_id == m.player1_id else m.player1_id
+            if m.winner_id in standings:
+                standings[m.winner_id]["wins"] += 1
+                standings[m.winner_id]["points"] += 3
+                standings[m.winner_id]["matches_played"] += 1
+            if loser_id and loser_id in standings:
+                standings[loser_id]["losses"] += 1
+                standings[loser_id]["matches_played"] += 1
+
+    # Sort by points desc, then wins desc
+    sorted_standings = sorted(
+        standings.values(),
+        key=lambda s: (s["points"], s["wins"]),
+        reverse=True,
+    )
+
+    # Group matches by round
+    rounds_map: dict[int, list] = {}
+    for m in matches:
+        rounds_map.setdefault(m.round_number, []).append(serialize_match(m))
+
+    rounds = [
+        {"round_number": rn, "name": f"Round {rn}", "matches": ms}
+        for rn, ms in sorted(rounds_map.items())
+    ]
+
+    return {
+        "tournament": serialize_tournament(tournament),
+        "format": "round_robin",
+        "rounds": rounds,
+        "total_rounds": len(rounds),
+        "standings": sorted_standings,
     }
 
 
@@ -186,8 +430,11 @@ def serialize_tournament(t: Tournament) -> dict:
     return {
         "id": t.id,
         "name": t.name,
+        "description": t.description,
+        "format": t.format,
         "prize_image_url": t.prize_image_url,
         "prize_name": t.prize_name,
+        "prize_pool": t.prize_pool,
         "max_players": t.max_players,
         "status": t.status,
         "tournament_date": t.tournament_date,
@@ -201,7 +448,6 @@ def serialize_user(user_id: str, tournament: Tournament) -> dict | None:
     """Look up a user from tournament participants or match relationships."""
     if not user_id:
         return None
-    # Try to find from participants
     for p in (tournament.participants or []):
         if p.user and p.user.id == user_id:
             return {"id": p.user.id, "username": p.user.username, "display_name": p.user.display_name}
@@ -213,6 +459,8 @@ def serialize_match(m: TournamentMatch) -> dict:
         "id": m.id,
         "round_number": m.round_number,
         "match_index": m.match_index,
+        "group_id": m.group_id,
+        "score": m.score,
         "player1": {"id": m.player1.id, "username": m.player1.username, "display_name": m.player1.display_name} if m.player1 else None,
         "player2": {"id": m.player2.id, "username": m.player2.username, "display_name": m.player2.display_name} if m.player2 else None,
         "winner": {"id": m.winner.id, "username": m.winner.username, "display_name": m.winner.display_name} if m.winner else None,
