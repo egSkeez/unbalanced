@@ -399,7 +399,7 @@ export default function TournamentsPage() {
                             </div>
 
                             {/* Progress bar */}
-                            {t.status === 'open' && (
+                            {(t.status === 'open' || t.status === 'registration') && (
                                 <div style={{ marginTop: 8, background: '#222', borderRadius: 4, height: 6, overflow: 'hidden' }}>
                                     <div style={{
                                         width: `${(t.participant_count / t.max_players) * 100}%`,
@@ -414,7 +414,7 @@ export default function TournamentsPage() {
 
                         {/* Actions */}
                         <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                            {t.status === 'open' && user && (
+                            {(t.status === 'open' || t.status === 'registration') && user && (
                                 <button
                                     className="btn btn-primary btn-sm"
                                     onClick={() => handleJoin(t.id)}
@@ -423,7 +423,7 @@ export default function TournamentsPage() {
                                     {joining === t.id ? 'Joining...' : 'Join'}
                                 </button>
                             )}
-                            {t.status === 'open' && user && (
+                            {(t.status === 'open' || t.status === 'registration') && user && (
                                 <button
                                     className="btn btn-sm"
                                     onClick={() => handleLeave(t.id)}
@@ -437,11 +437,9 @@ export default function TournamentsPage() {
                                     View Bracket
                                 </Link>
                             )}
-                            {t.status === 'open' && (
-                                <Link href={`/tournaments/${t.id}`} className="btn btn-sm">
-                                    Details
-                                </Link>
-                            )}
+                            <Link href={`/tournaments/${t.id}`} className="btn btn-sm">
+                                Details
+                            </Link>
                             {user?.role === 'admin' && (
                                 <button
                                     className="btn btn-sm"
