@@ -501,42 +501,76 @@ export default function TournamentDetailPage() {
                             No participants yet. Be the first to join!
                         </div>
                     ) : (
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 10 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 10 }}>
                             {participants.map(p => {
-                                const stat = getMainStatDisplay(p.stats);
-                                const line = getStatLine(p.stats);
+                                const s = p.stats;
+                                const rating = s?.avg_rating;
+                                const ratingColor = rating != null ? getRatingColor(rating) : 'var(--text-muted)';
                                 return (
                                     <div key={p.id} style={{
-                                        padding: '12px 16px', borderRadius: 10, background: '#111',
-                                        border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12,
+                                        padding: '14px 16px', borderRadius: 12, background: '#111',
+                                        border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 14,
                                     }}>
+                                        {/* HLTV Rating Badge */}
                                         <div style={{
-                                            width: 40, height: 40, borderRadius: '50%', flexShrink: 0,
-                                            background: stat ? `${stat.color}18` : 'var(--card-hover)',
-                                            border: stat ? `2px solid ${stat.color}55` : '2px solid var(--border)',
+                                            width: 46, height: 46, borderRadius: '50%', flexShrink: 0,
+                                            background: `${ratingColor}15`,
+                                            border: `2px solid ${ratingColor}55`,
                                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                            fontSize: stat ? 12 : 15, fontWeight: 800,
-                                            color: stat ? stat.color : 'var(--text-secondary)',
+                                            flexDirection: 'column',
                                         }}>
-                                            {stat ? stat.value : p.display_name[0]?.toUpperCase()}
+                                            <div style={{ fontSize: 13, fontWeight: 800, color: ratingColor, lineHeight: 1.1 }}>
+                                                {rating != null ? rating.toFixed(2) : '—'}
+                                            </div>
+                                            <div style={{ fontSize: 7, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                                HLTV
+                                            </div>
                                         </div>
+
+                                        {/* Name + Stats */}
                                         <div style={{ flex: 1, minWidth: 0 }}>
-                                            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
+                                            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 3 }}>
                                                 {p.display_name}
                                             </div>
-                                            {line && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{line}</div>}
+                                            {s && (s.overall_kd != null || s.avg_adr != null || s.avg_hs_pct != null) ? (
+                                                <div style={{ display: 'flex', gap: 10, fontSize: 12, color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
+                                                    {s.overall_kd != null && (
+                                                        <span><strong style={{ color: s.overall_kd >= 1.0 ? '#4da6ff' : 'var(--red)' }}>{s.overall_kd.toFixed(2)}</strong> K/D</span>
+                                                    )}
+                                                    {s.avg_adr != null && (
+                                                        <span><strong style={{ color: s.avg_adr >= 80 ? '#4da6ff' : 'var(--text-secondary)' }}>{s.avg_adr.toFixed(0)}</strong> ADR</span>
+                                                    )}
+                                                    {s.avg_hs_pct != null && (
+                                                        <span><strong>{s.avg_hs_pct.toFixed(0)}%</strong> HS</span>
+                                                    )}
+                                                    {(s.wins != null || s.losses != null) && (
+                                                        <span style={{ color: 'var(--text-muted)' }}>
+                                                            <span style={{ color: 'var(--neon-green)' }}>{s.wins ?? 0}W</span>
+                                                            {' - '}
+                                                            <span style={{ color: 'var(--red)' }}>{s.losses ?? 0}L</span>
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No match data</div>
+                                            )}
                                         </div>
+
+                                        {/* Seed badge */}
                                         {p.seed && !isRegistration && (
-                                            <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600 }}>#{p.seed}</div>
+                                            <div style={{
+                                                fontSize: 10, color: 'var(--text-muted)', fontWeight: 700,
+                                                background: 'rgba(255,255,255,0.05)', padding: '2px 8px', borderRadius: 4,
+                                            }}>#{p.seed}</div>
                                         )}
                                     </div>
                                 );
                             })}
                             {isRegistration && Array.from({ length: tournament.max_players - participants.length }).map((_, i) => (
                                 <div key={`empty-${i}`} style={{
-                                    padding: '14px 16px', borderRadius: 10, border: '1px dashed var(--border)',
+                                    padding: '14px 16px', borderRadius: 12, border: '1px dashed var(--border)',
                                     color: 'var(--text-muted)', display: 'flex', alignItems: 'center',
-                                    justifyContent: 'center', minHeight: 56, fontSize: 13,
+                                    justifyContent: 'center', minHeight: 64, fontSize: 13,
                                 }}>
                                     Open Slot
                                 </div>
