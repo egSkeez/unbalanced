@@ -7,9 +7,11 @@ import { getTournaments, joinTournament, leaveTournament, createTournament, dele
 interface TournamentData {
     id: string;
     name: string;
+    format: string;
     prize_image_url: string | null;
     prize_name: string | null;
     max_players: number;
+    playoffs: boolean;
     status: string;
     tournament_date: string | null;
     created_at: string;
@@ -31,7 +33,7 @@ export default function TournamentsPage() {
     const [filter, setFilter] = useState<string>('');
     const [joining, setJoining] = useState<string | null>(null);
     const [showCreate, setShowCreate] = useState(false);
-    const [createForm, setCreateForm] = useState({ name: '', format: 'single_elimination', prize_image_url: '', prize_name: '', prize_pool: '', max_players: 8, tournament_date: '' });
+    const [createForm, setCreateForm] = useState({ name: '', format: 'single_elimination', prize_image_url: '', prize_name: '', prize_pool: '', max_players: 8, playoffs: false, unlimited: false, tournament_date: '' });
     const [error, setError] = useState('');
 
     // Skin search state
@@ -134,11 +136,12 @@ export default function TournamentsPage() {
                 prize_image_url: createForm.prize_image_url || undefined,
                 prize_name: createForm.prize_name || undefined,
                 prize_pool: createForm.prize_pool || undefined,
-                max_players: createForm.max_players,
+                max_players: createForm.unlimited ? 0 : createForm.max_players,
+                playoffs: createForm.format === 'round_robin' ? createForm.playoffs : undefined,
                 tournament_date: createForm.tournament_date || undefined,
             }, token);
             setShowCreate(false);
-            setCreateForm({ name: '', format: 'single_elimination', prize_image_url: '', prize_name: '', prize_pool: '', max_players: 8, tournament_date: '' });
+            setCreateForm({ name: '', format: 'single_elimination', prize_image_url: '', prize_name: '', prize_pool: '', max_players: 8, playoffs: false, unlimited: false, tournament_date: '' });
             setSkinQuery('');
             await loadTournaments();
         } catch (e: unknown) {
@@ -167,6 +170,7 @@ export default function TournamentsPage() {
         open: 'var(--neon-green)',
         registration: 'var(--neon-green)',
         active: 'var(--orange)',
+        playoffs: 'var(--gold)',
         completed: 'var(--text-muted)',
     };
 
@@ -307,17 +311,55 @@ export default function TournamentsPage() {
 
                         <div>
                             <label style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' }}>Max Players</label>
-                            <select
-                                value={createForm.max_players}
-                                onChange={e => setCreateForm(f => ({ ...f, max_players: parseInt(e.target.value) }))}
-                                style={inputStyle}
-                            >
-                                <option value={4}>4 Players</option>
-                                <option value={8}>8 Players</option>
-                                <option value={16}>16 Players</option>
-                                <option value={32}>32 Players</option>
-                            </select>
+                            {createForm.format === 'round_robin' ? (
+                                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                                    <input
+                                        type="number"
+                                        min={2}
+                                        max={64}
+                                        placeholder="e.g. 10"
+                                        value={createForm.unlimited ? '' : createForm.max_players}
+                                        onChange={e => setCreateForm(f => ({ ...f, max_players: parseInt(e.target.value) || 2, unlimited: false }))}
+                                        disabled={createForm.unlimited}
+                                        style={{ ...inputStyle, flex: 1, opacity: createForm.unlimited ? 0.4 : 1 }}
+                                    />
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-secondary)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={createForm.unlimited}
+                                            onChange={e => setCreateForm(f => ({ ...f, unlimited: e.target.checked }))}
+                                            style={{ accentColor: 'var(--neon-green)' }}
+                                        />
+                                        No limit (open)
+                                    </label>
+                                </div>
+                            ) : (
+                                <select
+                                    value={createForm.max_players}
+                                    onChange={e => setCreateForm(f => ({ ...f, max_players: parseInt(e.target.value) }))}
+                                    style={inputStyle}
+                                >
+                                    <option value={4}>4 Players</option>
+                                    <option value={8}>8 Players</option>
+                                    <option value={16}>16 Players</option>
+                                    <option value={32}>32 Players</option>
+                                </select>
+                            )}
                         </div>
+
+                        {createForm.format === 'round_robin' && (
+                            <div>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={createForm.playoffs}
+                                        onChange={e => setCreateForm(f => ({ ...f, playoffs: e.target.checked }))}
+                                        style={{ accentColor: 'var(--gold)', width: 16, height: 16 }}
+                                    />
+                                    <span>Enable Playoffs <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>(Top 4 advance to SE bracket after group stage)</span></span>
+                                </label>
+                            </div>
+                        )}
 
                         <button className="btn btn-primary" onClick={handleCreate} disabled={!createForm.name.trim()}>
                             Create Tournament
@@ -328,7 +370,7 @@ export default function TournamentsPage() {
 
             {/* Filters */}
             <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
-                {['', 'registration', 'open', 'active', 'completed'].map(f => (
+                {['', 'registration', 'open', 'active', 'playoffs', 'completed'].map(f => (
                     <button
                         key={f}
                         className={`btn btn-sm ${filter === f ? 'btn-primary' : ''}`}
@@ -384,22 +426,31 @@ export default function TournamentsPage() {
                                     Prize: {t.prize_name}
                                 </div>
                             )}
-                            <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
-                                {t.participant_count}/{t.max_players} players enrolled
+                            <div style={{ color: 'var(--text-secondary)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                <span>
+                                    {t.max_players > 0 ? `${t.participant_count}/${t.max_players}` : `${t.participant_count}`} players enrolled
+                                    {t.max_players === 0 && <span style={{ color: 'var(--text-muted)' }}> (open)</span>}
+                                </span>
+                                {t.format === 'round_robin' && (
+                                    <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 3, background: 'rgba(100,149,237,0.15)', color: '#6495ed', border: '1px solid rgba(100,149,237,0.3)' }}>RR</span>
+                                )}
+                                {t.playoffs && (
+                                    <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 3, background: 'rgba(255,215,0,0.12)', color: 'var(--gold)', border: '1px solid rgba(255,215,0,0.3)' }}>+ Playoffs</span>
+                                )}
                                 {t.tournament_date && (
-                                    <span style={{ marginLeft: 12, color: 'var(--text-muted)' }}>
+                                    <span style={{ color: 'var(--text-muted)' }}>
                                         {formatDate(t.tournament_date)}
                                     </span>
                                 )}
                                 {t.winner && (
-                                    <span style={{ marginLeft: 12, color: 'var(--gold)' }}>
+                                    <span style={{ color: 'var(--gold)' }}>
                                         Winner: {t.winner.display_name}
                                     </span>
                                 )}
                             </div>
 
                             {/* Progress bar */}
-                            {(t.status === 'open' || t.status === 'registration') && (
+                            {(t.status === 'open' || t.status === 'registration') && t.max_players > 0 && (
                                 <div style={{ marginTop: 8, background: '#222', borderRadius: 4, height: 6, overflow: 'hidden' }}>
                                     <div style={{
                                         width: `${(t.participant_count / t.max_players) * 100}%`,

@@ -73,6 +73,7 @@ async def lifespan(app: FastAPI):
             ("tournaments", "description", "TEXT"),
             ("tournaments", "rules", "TEXT"),
             ("tournaments", "prize_pool", "TEXT"),
+            ("tournaments", "playoffs", "BOOLEAN DEFAULT FALSE"),
             ("tournaments", "format", "TEXT DEFAULT 'single_elimination'"),
             ("tournament_participants", "checked_in", "BOOLEAN DEFAULT FALSE"),
             ("tournament_matches", "group_id", "INTEGER"),
@@ -187,7 +188,8 @@ class TournamentCreateRequest(BaseModel):
     prize_image_url: Optional[str] = None
     prize_name: Optional[str] = None
     prize_pool: Optional[str] = None
-    max_players: int = 8
+    max_players: int = 0  # 0 = unlimited/open registration
+    playoffs: bool = False  # RR only: top-4 playoff bracket after group stage
     rules: Optional[str] = None
     tournament_date: Optional[str] = None  # e.g. "2026-03-15"
 
@@ -1533,6 +1535,9 @@ async def create_tournament(
         raise HTTPException(403, "Only admins can create tournaments")
     if req.format not in (TournamentFormat.single_elimination.value, TournamentFormat.round_robin.value):
         raise HTTPException(400, "format must be 'single_elimination' or 'round_robin'")
+    # Single elimination requires a fixed player count
+    if req.format == TournamentFormat.single_elimination.value and req.max_players < 2:
+        raise HTTPException(400, "Single elimination requires at least 2 max_players")
 
     tournament = Tournament(
         name=req.name,
@@ -1543,6 +1548,7 @@ async def create_tournament(
         prize_name=req.prize_name,
         prize_pool=req.prize_pool,
         max_players=req.max_players,
+        playoffs=req.playoffs if req.format == TournamentFormat.round_robin.value else False,
         tournament_date=req.tournament_date,
         created_by=current_user.id,
         status=TournamentStatus.registration.value,
@@ -1678,14 +1684,14 @@ async def join_tournament(
     if result.scalars().first():
         raise HTTPException(400, "Already enrolled in this tournament")
 
-    # Check capacity
+    # Check capacity (0 = unlimited)
     result = await db.execute(
         select(TournamentParticipant).filter(
             TournamentParticipant.tournament_id == tournament_id
         )
     )
     current_count = len(result.scalars().all())
-    if current_count >= tournament.max_players:
+    if tournament.max_players > 0 and current_count >= tournament.max_players:
         raise HTTPException(400, "Tournament is full")
 
     # Enroll
@@ -1698,8 +1704,8 @@ async def join_tournament(
 
     new_count = current_count + 1
 
-    # AUTO-GENERATE BRACKET when capacity reached
-    if new_count == tournament.max_players:
+    # AUTO-GENERATE BRACKET when capacity reached (only for fixed-size tournaments)
+    if tournament.max_players > 0 and new_count == tournament.max_players:
         await db.commit()  # commit the participant first
         tournament = await start_tournament(tournament_id, db)
         return {
@@ -1709,9 +1715,10 @@ async def join_tournament(
         }
 
     await db.commit()
+    cap_str = f"/{tournament.max_players}" if tournament.max_players > 0 else " (open)"
     return {
         "status": "joined",
-        "message": f"Enrolled successfully ({new_count}/{tournament.max_players})",
+        "message": f"Enrolled successfully ({new_count}{cap_str})",
         "participant_count": new_count,
     }
 

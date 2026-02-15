@@ -21,6 +21,7 @@ class TournamentFormat(str, enum.Enum):
 class TournamentStatus(str, enum.Enum):
     registration = "registration"
     active = "active"
+    playoffs = "playoffs"
     completed = "completed"
 
 class User(Base):
@@ -53,8 +54,9 @@ class Tournament(Base):
     prize_image_url = Column(String, nullable=True)
     prize_name = Column(String, nullable=True)
     prize_pool = Column(String, nullable=True)  # e.g. "$500", "AWP | Dragon Lore"
-    max_players = Column(Integer, nullable=False, default=8)
-    status = Column(String, default=TournamentStatus.registration.value)  # registration, active, completed
+    max_players = Column(Integer, nullable=False, default=0)  # 0 = unlimited
+    playoffs = Column(Boolean, default=False)  # RR: create SE bracket for top 4 after group stage
+    status = Column(String, default=TournamentStatus.registration.value)  # registration, active, playoffs, completed
     tournament_date = Column(String, nullable=True)  # e.g. "2026-03-15"
     created_by = Column(String, ForeignKey("users.id"), nullable=True)
     winner_id = Column(String, ForeignKey("users.id"), nullable=True)

@@ -70,6 +70,7 @@ interface BracketData {
     tournament: TournamentInfo;
     format: string;
     rounds: RoundData[];
+    playoff_rounds?: RoundData[];
     total_rounds: number;
     standings?: StandingData[];
 }
@@ -84,6 +85,7 @@ interface TournamentInfo {
     prize_name: string | null;
     prize_pool: string | null;
     max_players: number;
+    playoffs: boolean;
     status: string;
     tournament_date: string | null;
     created_by: string | null;
@@ -412,8 +414,8 @@ export default function TournamentDetailPage() {
                         )}
 
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, fontSize: 13, color: 'var(--text-secondary)' }}>
-                            <span>{formatLabel(tournament.format)}</span>
-                            <span>{tournament.max_players} Players</span>
+                            <span>{formatLabel(tournament.format)}{tournament.playoffs ? ' + Playoffs' : ''}</span>
+                            <span>{tournament.max_players > 0 ? `${tournament.max_players} Players` : 'Unlimited Players'}</span>
                             {tournament.tournament_date && (
                                 <span>
                                     {new Date(tournament.tournament_date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
@@ -453,18 +455,26 @@ export default function TournamentDetailPage() {
                 </div>
 
                 {/* Progress bar (registration only) */}
-                {isRegistration && (
+                {(isRegistration || tournament.status === 'open') && (
                     <div style={{ marginTop: 16 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
-                            <span>{participants.length} / {tournament.max_players} enrolled</span>
-                            <span>{Math.round((participants.length / tournament.max_players) * 100)}%</span>
-                        </div>
-                        <div style={{ background: '#222', borderRadius: 6, height: 6, overflow: 'hidden' }}>
-                            <div style={{
-                                width: `${(participants.length / tournament.max_players) * 100}%`,
-                                height: '100%', background: 'var(--neon-green)', borderRadius: 6, transition: 'width 0.3s',
-                            }} />
-                        </div>
+                        {tournament.max_players > 0 ? (
+                            <>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
+                                    <span>{participants.length} / {tournament.max_players} enrolled</span>
+                                    <span>{Math.round((participants.length / tournament.max_players) * 100)}%</span>
+                                </div>
+                                <div style={{ background: '#222', borderRadius: 6, height: 6, overflow: 'hidden' }}>
+                                    <div style={{
+                                        width: `${Math.min((participants.length / tournament.max_players) * 100, 100)}%`,
+                                        height: '100%', background: 'var(--neon-green)', borderRadius: 6, transition: 'width 0.3s',
+                                    }} />
+                                </div>
+                            </>
+                        ) : (
+                            <div style={{ fontSize: 11, color: 'var(--neon-green)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                Open Registration • {participants.length} Enrolled
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
@@ -517,8 +527,8 @@ export default function TournamentDetailPage() {
             {/* Overview Tab */}
             {activeTab === 'overview' && (
                 <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
-                    <InfoCard label="Format" value={formatLabel(tournament.format)} />
-                    <InfoCard label="Players" value={`${participants.length} / ${tournament.max_players}`} />
+                    <InfoCard label="Format" value={`${formatLabel(tournament.format)}${tournament.playoffs ? ' + Playoffs' : ''}`} />
+                    <InfoCard label="Players" value={tournament.max_players > 0 ? `${participants.length} / ${tournament.max_players}` : `${participants.length} (Unlimited)`} />
                     <InfoCard label="Status" value={tournament.status.charAt(0).toUpperCase() + tournament.status.slice(1)} color={statusColors[tournament.status]} />
                     {tournament.tournament_date && (
                         <InfoCard label="Date" value={new Date(tournament.tournament_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} />
@@ -752,7 +762,7 @@ export default function TournamentDetailPage() {
                                     </div>
                                 );
                             })}
-                            {isRegistration && Array.from({ length: tournament.max_players - participants.length }).map((_, i) => (
+                            {isRegistration && tournament.max_players > 0 && Array.from({ length: Math.max(0, tournament.max_players - participants.length) }).map((_, i) => (
                                 <div key={`empty-${i}`} style={{
                                     padding: '14px 16px', borderRadius: 12, border: '1px dashed var(--border)',
                                     color: 'var(--text-muted)', display: 'flex', alignItems: 'center',
@@ -779,6 +789,7 @@ export default function TournamentDetailPage() {
                             isAdmin={isAdmin}
                             actionLoading={actionLoading}
                             onEditMatch={openScoreDialog}
+                            onCreateLobby={handleCreateLobby}
                         />
                     ) : (
                         <BracketView
@@ -883,12 +894,21 @@ function InfoCard({ label, value, color }: { label: string; value: string; color
 // ──────────────────────────────────────────────
 
 function RoundRobinView({
-    bracket, isAdmin, actionLoading, onEditMatch,
+    bracket, isAdmin, actionLoading, onEditMatch, onCreateLobby,
 }: {
     bracket: BracketData; isAdmin: boolean; actionLoading: string | null;
     onEditMatch: (match: MatchData) => void;
+    onCreateLobby?: (id: string) => void;
 }) {
     const standings = bracket.standings || [];
+    const playoffRounds = bracket.playoff_rounds || [];
+
+    // Construct a pseudo-bracket object for the BracketView if playoffs exist
+    const playoffBracket: BracketData | null = playoffRounds.length > 0 ? {
+        ...bracket,
+        rounds: playoffRounds,
+        total_rounds: playoffRounds.length,
+    } : null;
 
     return (
         <div>
@@ -933,8 +953,27 @@ function RoundRobinView({
                 </table>
             </div>
 
-            {/* Matches by Round */}
-            <h3 style={{ fontWeight: 700, marginBottom: 12, fontSize: 18 }}>Matches</h3>
+            {/* Playoff Bracket (if active) */}
+            {playoffBracket && (
+                <div style={{ marginBottom: 40, padding: '24px', background: 'rgba(255,215,0,0.03)', borderRadius: 16, border: '1px solid rgba(255,215,0,0.1)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                        <h3 style={{ fontWeight: 800, fontSize: 22, color: 'var(--gold)', margin: 0 }}>Playoffs</h3>
+                        <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--gold)', padding: '2px 8px', border: '1px solid var(--gold)', borderRadius: 4 }}>
+                            Top 4
+                        </span>
+                    </div>
+                    <BracketView
+                        bracket={playoffBracket}
+                        isAdmin={isAdmin}
+                        actionLoading={actionLoading}
+                        onCreateLobby={onCreateLobby || (() => { })}
+                        onEditMatch={onEditMatch}
+                    />
+                </div>
+            )}
+
+            {/* Group Stage Matches */}
+            <h3 style={{ fontWeight: 700, marginBottom: 12, fontSize: 18 }}>Group Stage Matches</h3>
             {bracket.rounds.map(round => (
                 <div key={round.round_number} style={{ marginBottom: 20 }}>
                     <h4 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8 }}>{round.name}</h4>

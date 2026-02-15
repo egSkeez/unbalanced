@@ -131,7 +131,7 @@ export const getTournaments = (status?: string) =>
 export const createTournament = (data: {
     name: string; description?: string; format?: string;
     prize_image_url?: string; prize_name?: string; prize_pool?: string;
-    max_players: number; tournament_date?: string;
+    max_players?: number; playoffs?: boolean; tournament_date?: string;
 }, token: string) =>
     fetchApi('/api/tournaments', { method: 'POST', body: JSON.stringify(data), headers: { 'Authorization': `Bearer ${token}` } });
 export const getTournament = (id: string) =>

@@ -258,7 +258,7 @@ async def generate_single_elimination_bracket(tournament_id: str, db: AsyncSessi
 async def report_match(match_id: str, winner_id: str, score: str | None, db: AsyncSession):
     """
     Report the result of a match. For Single Elimination, auto-advances the winner.
-    For Round Robin, just records the result.
+    For Round Robin, records the result and optionally generates a playoff bracket.
     """
     result = await db.execute(select(TournamentMatch).filter(TournamentMatch.id == match_id))
     match = result.scalars().first()
@@ -296,22 +296,116 @@ async def report_match(match_id: str, winner_id: str, score: str | None, db: Asy
                 tournament.winner_id = winner_id
 
     elif tournament and tournament.format == TournamentFormat.round_robin.value:
-        # Check if all matches are complete
-        all_matches = [m for m in tournament.matches]
-        all_done = all(m.winner_id is not None for m in all_matches if m.id != match_id)
-        if all_done:
-            # Determine winner by most wins
-            wins: dict[str, int] = {}
-            for m in all_matches:
-                w = m.winner_id if m.id != match_id else winner_id
-                if w:
-                    wins[w] = wins.get(w, 0) + 1
-            if wins:
-                tournament.winner_id = max(wins, key=wins.get)
+        is_playoff_match = match.group_id == 1  # playoff matches use group_id=1
+
+        if is_playoff_match:
+            # Handle playoff bracket just like single elimination
+            if match.next_match_id:
+                result = await db.execute(
+                    select(TournamentMatch).filter(TournamentMatch.id == match.next_match_id)
+                )
+                next_match = result.scalars().first()
+                if next_match:
+                    if match.match_index % 2 == 0:
+                        next_match.player1_id = winner_id
+                    else:
+                        next_match.player2_id = winner_id
+            else:
+                # Playoff final — tournament complete
                 tournament.status = TournamentStatus.completed.value
+                tournament.winner_id = winner_id
+        else:
+            # Group stage match — check if all group matches are complete
+            all_matches = [m for m in tournament.matches if m.group_id == 0 or m.group_id is None]
+            all_done = all(m.winner_id is not None for m in all_matches if m.id != match_id)
+            if all_done:
+                has_playoffs = tournament.playoffs if hasattr(tournament, 'playoffs') else False
+                if has_playoffs:
+                    # Generate playoff bracket for top 4
+                    await _generate_playoff_bracket(tournament, all_matches, match_id, winner_id, db)
+                    tournament.status = TournamentStatus.playoffs.value
+                else:
+                    # Determine winner by most wins
+                    wins: dict[str, int] = {}
+                    for m in all_matches:
+                        w = m.winner_id if m.id != match_id else winner_id
+                        if w:
+                            wins[w] = wins.get(w, 0) + 1
+                    if wins:
+                        tournament.winner_id = max(wins, key=wins.get)
+                        tournament.status = TournamentStatus.completed.value
 
     await db.commit()
     return match
+
+
+async def _generate_playoff_bracket(
+    tournament: Tournament,
+    group_matches: list,
+    current_match_id: str,
+    current_winner_id: str,
+    db: AsyncSession,
+):
+    """Generate a 4-player single elimination playoff bracket from top 4 in RR standings."""
+    # Calculate standings
+    wins: dict[str, int] = {}
+    for m in group_matches:
+        w = m.winner_id if m.id != current_match_id else current_winner_id
+        if w:
+            wins[w] = wins.get(w, 0) + 1
+
+    # Sort by wins descending
+    sorted_players = sorted(wins.keys(), key=lambda pid: wins[pid], reverse=True)
+    top4 = sorted_players[:4]
+
+    if len(top4) < 4:
+        # Not enough players for playoffs — just complete
+        if wins:
+            tournament.winner_id = max(wins, key=wins.get)
+            tournament.status = TournamentStatus.completed.value
+        return
+
+    # Build a 4-player SE bracket:
+    #   Semi 1: #1 vs #4 (match_index=0)
+    #   Semi 2: #2 vs #3 (match_index=1)
+    #   Final:            (match_index=0, round 2)
+
+    # Create final match first
+    final_id = str(uuid.uuid4())
+    final_match = TournamentMatch(
+        id=final_id,
+        tournament_id=tournament.id,
+        round_number=100,  # high number to separate from group rounds
+        match_index=0,
+        group_id=1,  # marks as playoff match
+    )
+    db.add(final_match)
+
+    # Semi 1: #1 seed vs #4 seed
+    semi1 = TournamentMatch(
+        id=str(uuid.uuid4()),
+        tournament_id=tournament.id,
+        round_number=99,
+        match_index=0,
+        group_id=1,
+        player1_id=top4[0],
+        player2_id=top4[3],
+        next_match_id=final_id,
+    )
+    db.add(semi1)
+
+    # Semi 2: #2 seed vs #3 seed
+    semi2 = TournamentMatch(
+        id=str(uuid.uuid4()),
+        tournament_id=tournament.id,
+        round_number=99,
+        match_index=1,
+        group_id=1,
+        player1_id=top4[1],
+        player2_id=top4[2],
+        next_match_id=final_id,
+    )
+    db.add(semi2)
 
 
 # Legacy alias
@@ -370,11 +464,15 @@ def build_bracket_response(tournament: Tournament) -> dict:
 
 
 def build_round_robin_response(tournament: Tournament) -> dict:
-    """Build a structured response for Round Robin with standings table."""
-    matches = tournament.matches or []
+    """Build a structured response for Round Robin with standings table and optional playoffs."""
+    all_matches = tournament.matches or []
     participants = tournament.participants or []
 
-    # Build standings from match results
+    # Separate group stage from playoff matches
+    group_matches = [m for m in all_matches if m.group_id == 0 or m.group_id is None]
+    playoff_matches = [m for m in all_matches if m.group_id == 1]
+
+    # Build standings from GROUP STAGE match results only
     standings: dict[str, dict] = {}
     for p in participants:
         uid = p.user_id
@@ -389,7 +487,7 @@ def build_round_robin_response(tournament: Tournament) -> dict:
             "matches_played": 0,
         }
 
-    for m in matches:
+    for m in group_matches:
         if m.winner_id:
             loser_id = m.player2_id if m.winner_id == m.player1_id else m.player1_id
             if m.winner_id in standings:
@@ -407,9 +505,9 @@ def build_round_robin_response(tournament: Tournament) -> dict:
         reverse=True,
     )
 
-    # Group matches by round
+    # Group stage matches by round
     rounds_map: dict[int, list] = {}
-    for m in matches:
+    for m in group_matches:
         rounds_map.setdefault(m.round_number, []).append(serialize_match(m))
 
     rounds = [
@@ -417,13 +515,32 @@ def build_round_robin_response(tournament: Tournament) -> dict:
         for rn, ms in sorted(rounds_map.items())
     ]
 
-    return {
+    response = {
         "tournament": serialize_tournament(tournament),
         "format": "round_robin",
         "rounds": rounds,
         "total_rounds": len(rounds),
         "standings": sorted_standings,
     }
+
+    # Include playoff bracket if present
+    if playoff_matches:
+        playoff_rounds_map: dict[int, list] = {}
+        for m in playoff_matches:
+            playoff_rounds_map.setdefault(m.round_number, []).append(serialize_match(m))
+
+        playoff_round_names = {99: "Semifinals", 100: "Final"}
+        playoff_rounds = [
+            {
+                "round_number": rn,
+                "name": playoff_round_names.get(rn, f"Playoff Round {rn}"),
+                "matches": ms,
+            }
+            for rn, ms in sorted(playoff_rounds_map.items())
+        ]
+        response["playoff_rounds"] = playoff_rounds
+
+    return response
 
 
 def serialize_tournament(t: Tournament) -> dict:
@@ -437,6 +554,7 @@ def serialize_tournament(t: Tournament) -> dict:
         "prize_name": t.prize_name,
         "prize_pool": t.prize_pool,
         "max_players": t.max_players,
+        "playoffs": t.playoffs if hasattr(t, 'playoffs') else False,
         "status": t.status,
         "tournament_date": t.tournament_date,
         "created_by": t.created_by,
