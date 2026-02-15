@@ -483,7 +483,7 @@ export default function TournamentsPage() {
                                     Leave
                                 </button>
                             )}
-                            {(t.status === 'active' || t.status === 'completed') && (
+                            {(t.status === 'active' || t.status === 'completed' || t.status === 'playoffs') && (
                                 <Link href={`/tournaments/${t.id}`} className="btn btn-sm btn-primary">
                                     View Bracket
                                 </Link>

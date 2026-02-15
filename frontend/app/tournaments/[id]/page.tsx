@@ -207,7 +207,7 @@ export default function TournamentDetailPage() {
                 setPrizeImage(tData.prize_image_url);
             }
 
-            if (tData.status === 'active' || tData.status === 'completed') {
+            if (tData.status === 'active' || tData.status === 'completed' || tData.status === 'playoffs') {
                 const bData = await getTournamentBracket(tournamentId);
                 setBracket(bData);
                 setActiveTab('bracket');
@@ -315,6 +315,7 @@ export default function TournamentDetailPage() {
         open: 'var(--neon-green)',
         registration: 'var(--neon-green)',
         active: 'var(--orange)',
+        playoffs: 'var(--gold)',
         completed: 'var(--text-muted)',
     };
 
