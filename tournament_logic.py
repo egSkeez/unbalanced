@@ -274,7 +274,12 @@ async def report_match(match_id: str, winner_id: str, score: str | None, db: Asy
         match.score = score
 
     # Fetch tournament to determine format
-    result = await db.execute(select(Tournament).filter(Tournament.id == match.tournament_id))
+    from sqlalchemy.orm import selectinload
+    result = await db.execute(
+        select(Tournament)
+        .options(selectinload(Tournament.matches), selectinload(Tournament.participants))
+        .filter(Tournament.id == match.tournament_id)
+    )
     tournament = result.scalars().first()
 
     if tournament and tournament.format == TournamentFormat.single_elimination.value:
@@ -347,21 +352,26 @@ async def _generate_playoff_bracket(
     db: AsyncSession,
 ):
     """Generate a 4-player single elimination playoff bracket from top 4 in RR standings."""
-    # Calculate standings
-    wins: dict[str, int] = {}
+    # Calculate standings - initialize with all participants to handle players with 0 wins
+    standings: dict[str, int] = {p.user_id: 0 for p in (tournament.participants or [])}
     for m in group_matches:
         w = m.winner_id if m.id != current_match_id else current_winner_id
-        if w:
-            wins[w] = wins.get(w, 0) + 1
+        if w and w in standings:
+            standings[w] = standings.get(w, 0) + 1
 
-    # Sort by wins descending
-    sorted_players = sorted(wins.keys(), key=lambda pid: wins[pid], reverse=True)
+    # Sort by wins descending. Use seed as tie-breaker if available.
+    participant_seeds = {p.user_id: p.seed or 999 for p in (tournament.participants or [])}
+    sorted_players = sorted(
+        standings.keys(),
+        key=lambda pid: (standings[pid], -participant_seeds.get(pid, 999)),
+        reverse=True
+    )
     top4 = sorted_players[:4]
 
     if len(top4) < 4:
-        # Not enough players for playoffs — just complete
-        if wins:
-            tournament.winner_id = max(wins, key=wins.get)
+        # Not enough players for playoffs — determine winner by most wins and complete
+        if standings:
+            tournament.winner_id = max(standings, key=standings.get)
             tournament.status = TournamentStatus.completed.value
         return
 
