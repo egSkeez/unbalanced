@@ -979,7 +979,7 @@ function RoundRobinView({
                     <h4 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8 }}>{round.name}</h4>
                     <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
                         {round.matches.map(match => (
-                            <RoundRobinMatchCard key={match.id} match={match} isAdmin={isAdmin} actionLoading={actionLoading} onEditMatch={onEditMatch} />
+                            <RoundRobinMatchCard key={match.id} match={match} isAdmin={isAdmin} actionLoading={actionLoading} onEditMatch={onEditMatch} onCreateLobby={onCreateLobby} />
                         ))}
                     </div>
                 </div>
@@ -992,10 +992,11 @@ const thStyle: React.CSSProperties = { padding: '10px 12px', textAlign: 'center'
 const tdStyle: React.CSSProperties = { padding: '10px 12px', textAlign: 'center' };
 
 function RoundRobinMatchCard({
-    match, isAdmin, actionLoading, onEditMatch,
+    match, isAdmin, actionLoading, onEditMatch, onCreateLobby,
 }: {
     match: MatchData; isAdmin: boolean; actionLoading: string | null;
     onEditMatch: (match: MatchData) => void;
+    onCreateLobby?: (id: string) => void;
 }) {
     const isActive = match.player1 && match.player2 && !match.winner;
     const borderColor = match.winner ? 'rgba(57,255,20,0.3)' : isActive ? 'rgba(255,140,0,0.4)' : 'var(--border)';
@@ -1031,14 +1032,48 @@ function RoundRobinMatchCard({
                 </span>
             )}
 
-            {isAdmin && isActive && actionLoading !== match.id && (
-                <button
+            {/* Lobby Link */}
+            {match.cybershoke_lobby_url && !match.winner && (
+                <a
+                    href={match.cybershoke_lobby_url} target="_blank" rel="noopener noreferrer"
                     className="btn btn-sm"
-                    onClick={() => onEditMatch(match)}
-                    style={{ fontSize: 11, padding: '4px 10px', flexShrink: 0 }}
+                    style={{
+                        fontSize: 10, padding: '4px 8px',
+                        background: 'rgba(0,160,255,0.1)', color: '#00a0ff', border: '1px solid rgba(0,160,255,0.3)',
+                        textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4
+                    }}
                 >
-                    Edit
-                </button>
+                    <span style={{ fontSize: 12 }}>🌐</span> Connect
+                </a>
+            )}
+
+            {/* Admin Actions */}
+            {isAdmin && isActive && (
+                <div style={{ display: 'flex', gap: 6, marginLeft: 4 }}>
+                    {onCreateLobby && !match.cybershoke_lobby_url && !match.winner && (
+                        <button
+                            className="btn btn-sm"
+                            onClick={() => onCreateLobby(match.id)}
+                            disabled={!!actionLoading}
+                            style={{
+                                fontSize: 10, padding: '4px 8px', flexShrink: 0,
+                                background: 'rgba(255,140,0,0.1)', color: 'var(--orange)', border: '1px solid rgba(255,140,0,0.3)',
+                                opacity: actionLoading ? 0.6 : 1, cursor: actionLoading ? 'not-allowed' : 'pointer',
+                            }}
+                        >
+                            {actionLoading === match.id ? '...' : '+ Server'}
+                        </button>
+                    )}
+                    {actionLoading !== match.id && (
+                        <button
+                            className="btn btn-sm"
+                            onClick={() => onEditMatch(match)}
+                            style={{ fontSize: 11, padding: '4px 10px', flexShrink: 0 }}
+                        >
+                            Edit
+                        </button>
+                    )}
+                </div>
             )}
         </div>
     );
