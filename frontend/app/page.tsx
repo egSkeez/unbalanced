@@ -225,7 +225,7 @@ export default function MixerPage() {
         team2: draft.team2,
         maps: draft.map_pick || '',
         lobby_link: lobbyLink,
-      });
+      }, token || undefined);
     } catch { /* ignore */ }
   };
 
@@ -399,6 +399,12 @@ export default function MixerPage() {
         <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
           <button className="btn" onClick={handleReroll}>🔀 Reroll Teams</button>
           <button className="btn btn-danger" onClick={handleClear}>🗑️ Clear Draft</button>
+
+          {user?.role === 'admin' && lobbyLink && (
+            <button className="btn btn-primary" onClick={handleBroadcast}>
+              📢 Send to Discord
+            </button>
+          )}
         </div>
       </div>
     );

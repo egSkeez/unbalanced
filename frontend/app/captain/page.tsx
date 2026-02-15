@@ -239,7 +239,7 @@ export default function CaptainPage() {
                 team2: draft.team2,
                 maps,
                 lobby_link: '',
-            });
+            }, token || undefined);
         } catch (e: unknown) {
             setError(e instanceof Error ? e.message : 'Failed to send to Discord');
         }

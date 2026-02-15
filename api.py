@@ -753,7 +753,18 @@ def veto_action(req: VetoActionRequest):
         final_three = picked + [final_map]
         update_draft_map(final_three)
         init_veto_state([], "")
-        return {"complete": True, "final_maps": final_three, "picked": picked}
+        
+        # AUTOMATIC LOBBY CREATION
+        # Default to Skeez as admin if creator not found
+        creator = "Skeez"
+        if saved:
+            creator = saved[10] or "Skeez"
+            
+        link, mid = create_cybershoke_lobby_api(admin_name=creator)
+        if link:
+            set_lobby_link(link, mid)
+            
+        return {"complete": True, "final_maps": final_three, "picked": picked, "lobby_link": link}
     else:
         update_veto_turn(rem, picked, opp)
         return {
@@ -1307,13 +1318,17 @@ def set_lobby(link: str = Query(...)):
 # ──────────────────────────────────────────────
 
 @app.post("/api/discord/broadcast")
-def broadcast(req: BroadcastRequest):
+def broadcast(req: BroadcastRequest, current_user: User = Depends(get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(403, "Only admins can broadcast to Discord")
     maps = req.maps.split(",") if isinstance(req.maps, str) else req.maps
     send_full_match_info(req.name_a, req.team1, req.name_b, req.team2, maps, req.lobby_link)
     return {"status": "ok"}
 
 @app.post("/api/discord/lobby")
-def broadcast_lobby(link: str = Query(...)):
+def broadcast_lobby(link: str = Query(...), current_user: User = Depends(get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(403, "Only admins can broadcast to Discord")
     send_lobby_to_discord(link)
     return {"status": "ok"}
 

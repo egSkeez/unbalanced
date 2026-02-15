@@ -97,10 +97,17 @@ export const createLobby = (adminName: string = 'Skeez') =>
 export const deleteLobby = () => fetchApi('/api/lobby', { method: 'DELETE' });
 
 // Discord
-export const broadcastToDiscord = (data: { name_a: string; team1: string[]; name_b: string; team2: string[]; maps: string; lobby_link: string }) =>
-    fetchApi('/api/discord/broadcast', { method: 'POST', body: JSON.stringify(data) });
-export const broadcastLobbyToDiscord = (link: string) =>
-    fetchApi(`/api/discord/lobby?link=${encodeURIComponent(link)}`, { method: 'POST' });
+export const broadcastToDiscord = (data: { name_a: string; team1: string[]; name_b: string; team2: string[]; maps: string; lobby_link: string }, token?: string) =>
+    fetchApi('/api/discord/broadcast', {
+        method: 'POST',
+        body: JSON.stringify(data),
+        headers: token ? { 'Authorization': `Bearer ${token}` } : undefined
+    });
+export const broadcastLobbyToDiscord = (link: string, token?: string) =>
+    fetchApi(`/api/discord/lobby?link=${encodeURIComponent(link)}`, {
+        method: 'POST',
+        headers: token ? { 'Authorization': `Bearer ${token}` } : undefined
+    });
 
 // Admin - Lobbies
 export const getLobbyHistory = () => fetchApi('/api/lobbies');
