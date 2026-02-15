@@ -367,6 +367,51 @@ def get_vote_status():
         df = pd.read_sql_query("SELECT * FROM current_draft_votes ORDER BY captain_name", conn)
     return df
 
+def get_captain_by_name(name):
+    """Look up a captain row by name (case-insensitive). Returns (captain_name, pin, vote) or None."""
+    with sync_engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT captain_name, pin, vote FROM current_draft_votes WHERE LOWER(captain_name) = LOWER(:name)"),
+            {"name": name}
+        ).fetchone()
+    return tuple(row) if row else None
+
+def get_captain_by_pin(pin):
+    """Look up a captain row by pin. Returns (captain_name, vote) or None."""
+    with sync_engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT captain_name, vote FROM current_draft_votes WHERE pin = :pin"),
+            {"pin": pin}
+        ).fetchone()
+    return tuple(row) if row else None
+
+def is_captain_banned(name):
+    """Check if a player is banned from captaincy (rerolled)."""
+    with sync_engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT 1 FROM current_draft_votes WHERE captain_name = :name AND vote = 'BANNED'"),
+            {"name": name}
+        ).fetchone()
+    return row is not None
+
+def check_captain_placeholder(team_num):
+    """Check if the placeholder for a team still exists (spot not yet taken)."""
+    placeholder = f"__TEAM{team_num}__"
+    with sync_engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT 1 FROM current_draft_votes WHERE captain_name = :ph"),
+            {"ph": placeholder}
+        ).fetchone()
+    return row is not None
+
+def insert_banned_captain(name):
+    """Insert a BANNED entry for a captain who rerolled."""
+    with sync_engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO current_draft_votes (captain_name, pin, vote) VALUES (:name, '', 'BANNED')"),
+            {"name": name}
+        )
+
 # --- MATCH LOGGING ---
 def update_elo(t1, t2, name_a, name_b, winner_idx, map_name):
     with sync_engine.begin() as conn:

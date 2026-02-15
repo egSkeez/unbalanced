@@ -92,6 +92,32 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         return () => clearInterval(interval);
     }, [user?.username, token]); // Re-run if user changes or token refreshes 
 
+    // Periodic user refresh (keeps sidebar "Live Draft" indicator current)
+    useEffect(() => {
+        if (!user || !token) return;
+
+        const refreshInterval = setInterval(async () => {
+            const storedToken = Cookies.get("token");
+            if (!storedToken) return;
+            const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+            try {
+                const { data } = await axios.get(`${apiBase}/api/auth/me`);
+                // Only update draft-related fields to avoid resetting ping
+                setUser(prev => prev ? {
+                    ...prev,
+                    in_draft: data.in_draft,
+                    is_captain: data.is_captain,
+                    draft_team_name: data.draft_team_name,
+                    draft_role: data.draft_role,
+                } : null);
+            } catch {
+                // Ignore refresh errors
+            }
+        }, 5000); // 5 seconds
+
+        return () => clearInterval(refreshInterval);
+    }, [user?.username, token]);
+
 
     const login = (newToken: string, userData: User) => {
         Cookies.set("token", newToken, { expires: 3 }); // 3 days

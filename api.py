@@ -33,7 +33,9 @@ from database import (
     clear_draft_state, get_roommates, set_roommates,
     init_veto_state, get_veto_state, update_veto_turn, update_draft_map,
     get_vote_status, set_draft_pins, submit_vote, update_elo,
-    init_empty_captains, claim_captain_spot
+    init_empty_captains, claim_captain_spot,
+    get_captain_by_name, get_captain_by_pin, is_captain_banned,
+    check_captain_placeholder, insert_banned_captain
 )
 from match_stats_db import (
     init_match_stats_tables, save_match_stats, get_player_aggregate_stats,
@@ -259,18 +261,8 @@ async def read_users_me(current_user: User = Depends(get_current_user)):
     
     display = current_user.display_name
     
-    # Check if user is captain in current draft (Legacy SQLite mixin)
-    # Ideally this should also be async or refactored, but strictly speaking we can run sync code here 
-    # if it's fast, OR we use `run_sync`.
-    # Since sqlite3 is blocking, we should be careful. 
-    # For now, I'll keep the sync sqlite3 calls for the *game logic* parts as refactoring EVERYTHING is out of scope.
-    # But I'll wrap them? No, just call them. It will block the event loop slightly but acceptable for migration MVP.
-    
-    conn = sqlite3.connect('cs2_history.db')
-    c = conn.cursor()
-    c.execute("SELECT captain_name, pin, vote FROM current_draft_votes WHERE LOWER(captain_name) = LOWER(?)", (display,))
-    cap_row = c.fetchone()
-    conn.close()
+    # Check if user is captain in current draft
+    cap_row = get_captain_by_name(display)
     
     user_data["is_captain"] = cap_row is not None
     user_data["captain_pin"] = cap_row[1] if cap_row else None
@@ -644,10 +636,7 @@ async def reroll_draft(req: RerollRequest, current_user: User = Depends(get_curr
     # Ban the reroller (unless admin? assume admin reroll is god-mode, but if acting as captain...)
     # Prompt implies "captain decided to reroll".
     if not is_admin: 
-        conn = sqlite3.connect('cs2_history.db')
-        conn.execute("INSERT INTO current_draft_votes (captain_name, pin, vote) VALUES (?, ?, ?)", (reroller_name, "", "BANNED"))
-        conn.commit()
-        conn.close()
+        insert_banned_captain(reroller_name)
 
     # Retain the other captain
     if other_captain:
@@ -686,10 +675,7 @@ async def step_in_as_captain(current_user: User = Depends(get_current_user)):
     else:
         raise HTTPException(403, "You are not in this draft")
 
-    conn = sqlite3.connect('cs2_history.db')
-    banned = conn.execute("SELECT 1 FROM current_draft_votes WHERE captain_name=? AND vote='BANNED'", (display,)).fetchone()
-    conn.close()
-    if banned:
+    if is_captain_banned(display):
         raise HTTPException(403, "You forfeited captaincy by rerolling")
 
     import uuid
@@ -845,11 +831,7 @@ def submit_captain_vote(req: VoteRequest):
 @app.post("/api/captain/login")
 def captain_login(req: CaptainLoginRequest):
     """Captain logs in by name. Returns their pin and draft info."""
-    conn = sqlite3.connect('cs2_history.db')
-    c = conn.cursor()
-    c.execute("SELECT captain_name, pin, vote FROM current_draft_votes WHERE LOWER(captain_name) = LOWER(?)", (req.name,))
-    row = c.fetchone()
-    conn.close()
+    row = get_captain_by_name(req.name)
 
     if not row:
         raise HTTPException(401, "You are not a captain in the current draft")
@@ -888,28 +870,18 @@ def captain_claim(req: CaptainLoginRequest):
         raise HTTPException(403, "You are not in this draft")
 
     # Check if banned from captaincy (rerolled)
-    conn = sqlite3.connect('cs2_history.db')
-    c = conn.cursor()
-    c.execute("SELECT 1 FROM current_draft_votes WHERE captain_name=? AND vote='BANNED'", (name,))
-    if c.fetchone():
-        conn.close()
+    if is_captain_banned(name):
         raise HTTPException(403, "You forfeited captaincy by rerolling")
 
     # Check if already claimed (by this player)
-    c.execute("SELECT captain_name, pin, vote FROM current_draft_votes WHERE LOWER(captain_name) = LOWER(?)", (name,))
-    existing = c.fetchone()
+    existing = get_captain_by_name(name)
 
     if existing:
         # Already a captain — just return their state
-        conn.close()
+        pass
     else:
         # Check if the placeholder for this team still exists (spot not yet taken)
-        placeholder = f"__TEAM{team_num}__"
-        c.execute("SELECT 1 FROM current_draft_votes WHERE captain_name = ?", (placeholder,))
-        spot_available = c.fetchone()
-        conn.close()
-
-        if not spot_available:
+        if not check_captain_placeholder(team_num):
             raise HTTPException(409, "Captain for your team has already stepped in")
 
         # Try to claim the spot
@@ -919,11 +891,7 @@ def captain_claim(req: CaptainLoginRequest):
             raise HTTPException(409, "Captain for your team has already stepped in")
 
     # Return full captain state (same as /api/captain/state)
-    conn = sqlite3.connect('cs2_history.db')
-    c = conn.cursor()
-    c.execute("SELECT captain_name, pin, vote FROM current_draft_votes WHERE LOWER(captain_name) = LOWER(?)", (name,))
-    row = c.fetchone()
-    conn.close()
+    row = get_captain_by_name(name)
 
     if not row:
         raise HTTPException(500, "Failed to retrieve captain state after claim")
@@ -964,11 +932,7 @@ def captain_claim(req: CaptainLoginRequest):
 @app.get("/api/captain/state")
 def captain_state(name: str = Query(...)):
     """Get full state for a captain: draft, vote status, veto status."""
-    conn = sqlite3.connect('cs2_history.db')
-    c = conn.cursor()
-    c.execute("SELECT captain_name, pin, vote FROM current_draft_votes WHERE LOWER(captain_name) = LOWER(?)", (name,))
-    row = c.fetchone()
-    conn.close()
+    row = get_captain_by_name(name)
 
     if not row:
         raise HTTPException(401, "Not a captain in current draft")
@@ -1015,11 +979,7 @@ def captain_state(name: str = Query(...)):
 @app.get("/api/votes/{token}")
 def captain_info(token: str):
     """Get captain info for mobile voting page."""
-    conn = sqlite3.connect('cs2_history.db')
-    c = conn.cursor()
-    c.execute("SELECT captain_name, vote FROM current_draft_votes WHERE pin=?", (token,))
-    row = c.fetchone()
-    conn.close()
+    row = get_captain_by_pin(token)
 
     if not row:
         raise HTTPException(404, "Token expired or invalid")
