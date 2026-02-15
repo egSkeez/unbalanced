@@ -190,6 +190,7 @@ export default function TournamentDetailPage() {
     const canEdit = isAdmin || isCreator;
     const isRegistration = tournament?.status === 'registration' || tournament?.status === 'open';
     const isRoundRobin = tournament?.format === 'round_robin';
+    const isParticipant = participants.some(p => p.user_id === user?.id);
 
     const loadData = useCallback(async () => {
         try {
@@ -432,12 +433,15 @@ export default function TournamentDetailPage() {
                         <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
                             {isRegistration && user && (
                                 <>
-                                    <button className="btn btn-primary btn-sm" onClick={handleJoin}>
-                                        Join Tournament
-                                    </button>
-                                    <button className="btn btn-sm" onClick={handleLeave} style={{ color: 'var(--red)' }}>
-                                        Leave
-                                    </button>
+                                    {!isParticipant ? (
+                                        <button className="btn btn-primary btn-sm" onClick={handleJoin}>
+                                            Join Tournament
+                                        </button>
+                                    ) : (
+                                        <button className="btn btn-sm" onClick={handleLeave} style={{ color: 'var(--red)' }}>
+                                            Leave
+                                        </button>
+                                    )}
                                 </>
                             )}
                             {isAdmin && isRegistration && participants.length >= 2 && (
