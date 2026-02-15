@@ -61,14 +61,29 @@ async def lifespan(app: FastAPI):
     check_and_migrate() # Legacy Sync
     await init_async_db() # New Async (creates all tables including tournaments)
     await init_user_accounts() # New Async
-    # Migrate tournament_date column for existing databases
+    # Migrate tournament columns for existing databases
     try:
         from sqlalchemy import text as sa_text
         from database import sync_engine
         with sync_engine.begin() as conn:
-            conn.execute(sa_text("ALTER TABLE tournaments ADD COLUMN tournament_date TEXT"))
-    except Exception:
-        pass  # column already exists or table just created with it
+            # Tournaments
+            for col in ["tournament_date", "description", "prize_pool"]:
+                try: conn.execute(sa_text(f"ALTER TABLE tournaments ADD COLUMN {col} TEXT"))
+                except Exception: pass
+            try: conn.execute(sa_text("ALTER TABLE tournaments ADD COLUMN format TEXT DEFAULT 'single_elimination'"))
+            except Exception: pass
+            
+            # Participants
+            try: conn.execute(sa_text("ALTER TABLE tournament_participants ADD COLUMN checked_in BOOLEAN DEFAULT 0"))
+            except Exception: pass
+            
+            # Matches
+            try: conn.execute(sa_text("ALTER TABLE tournament_matches ADD COLUMN group_id INTEGER"))
+            except Exception: pass
+            try: conn.execute(sa_text("ALTER TABLE tournament_matches ADD COLUMN score TEXT"))
+            except Exception: pass
+    except Exception as e:
+        print(f"Migration error: {e}")
     yield
     # Shutdown
     pass
