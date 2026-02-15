@@ -6,6 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import {
     getTournament, getTournamentBracket, joinTournament, leaveTournament,
     createTournamentLobby, reportMatch, startTournament, searchSkins,
+    updateTournament,
 } from '@/app/lib/api';
 
 // ──────────────────────────────────────────────
@@ -77,6 +78,7 @@ interface TournamentInfo {
     id: string;
     name: string;
     description: string | null;
+    rules: string | null;
     format: string;
     prize_image_url: string | null;
     prize_name: string | null;
@@ -84,6 +86,7 @@ interface TournamentInfo {
     max_players: number;
     status: string;
     tournament_date: string | null;
+    created_by: string | null;
     created_at: string;
     participant_count: number;
     winner: PlayerInfo | null;
@@ -152,7 +155,7 @@ function formatLabel(f: string): string {
 // MAIN PAGE
 // ──────────────────────────────────────────────
 
-type TabKey = 'overview' | 'participants' | 'bracket';
+type TabKey = 'overview' | 'description' | 'participants' | 'bracket';
 
 export default function TournamentDetailPage() {
     const params = useParams();
@@ -168,12 +171,21 @@ export default function TournamentDetailPage() {
     const [prizeImage, setPrizeImage] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<TabKey>('overview');
 
+    // Description editing state
+    const [editingDesc, setEditingDesc] = useState(false);
+    const [descDraft, setDescDraft] = useState('');
+    const [rulesDraft, setRulesDraft] = useState('');
+    const [prizeImgDraft, setPrizeImgDraft] = useState('');
+    const [savingDesc, setSavingDesc] = useState(false);
+
     // Score dialog state
     const [scoreDialog, setScoreDialog] = useState<{ matchId: string; player1: PlayerInfo; player2: PlayerInfo } | null>(null);
     const [scoreInput, setScoreInput] = useState('');
     const [scoreWinner, setScoreWinner] = useState('');
 
     const isAdmin = user?.role === 'admin';
+    const isCreator = !!(user && tournament?.created_by && user.id === tournament.created_by);
+    const canEdit = isAdmin || isCreator;
     const isRegistration = tournament?.status === 'registration' || tournament?.status === 'open';
     const isRoundRobin = tournament?.format === 'round_robin';
 
@@ -305,9 +317,36 @@ export default function TournamentDetailPage() {
 
     const tabs: { key: TabKey; label: string }[] = [
         { key: 'overview', label: 'Overview' },
+        { key: 'description', label: 'Description & Rules' },
         { key: 'participants', label: `Participants (${participants.length})` },
         { key: 'bracket', label: isRoundRobin ? 'Standings' : 'Bracket' },
     ];
+
+    const startEditing = () => {
+        setDescDraft(tournament?.description || '');
+        setRulesDraft(tournament?.rules || '');
+        setPrizeImgDraft(tournament?.prize_image_url || '');
+        setEditingDesc(true);
+    };
+
+    const handleSaveDesc = async () => {
+        if (!token || !tournament) return;
+        setSavingDesc(true);
+        setError('');
+        try {
+            await updateTournament(tournament.id, {
+                description: descDraft,
+                rules: rulesDraft,
+                prize_image_url: prizeImgDraft || undefined,
+            }, token);
+            setEditingDesc(false);
+            await loadData();
+        } catch (e: unknown) {
+            setError(e instanceof Error ? e.message : 'Failed to save');
+        } finally {
+            setSavingDesc(false);
+        }
+    };
 
     return (
         <div className="page-container" style={{ maxWidth: 1400 }}>
@@ -489,6 +528,153 @@ export default function TournamentDetailPage() {
                     )}
                     {bracket && (
                         <InfoCard label="Total Rounds" value={String(bracket.total_rounds)} />
+                    )}
+                </div>
+            )}
+
+            {/* Description & Rules Tab */}
+            {activeTab === 'description' && (
+                <div style={{ maxWidth: 800 }}>
+                    {/* Edit / View toggle */}
+                    {canEdit && !editingDesc && (
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                            <button className="btn btn-sm" onClick={startEditing} style={{
+                                fontSize: 12, padding: '6px 14px', background: 'rgba(57,255,20,0.1)',
+                                color: 'var(--neon-green)', border: '1px solid rgba(57,255,20,0.3)',
+                            }}>
+                                ✏️ Edit
+                            </button>
+                        </div>
+                    )}
+
+                    {editingDesc ? (
+                        /* ─── EDITING MODE ─── */
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                            {/* Description */}
+                            <div>
+                                <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 6 }}>Description</label>
+                                <textarea
+                                    value={descDraft}
+                                    onChange={e => setDescDraft(e.target.value)}
+                                    placeholder="Describe the tournament..."
+                                    rows={4}
+                                    style={{
+                                        width: '100%', background: '#111', border: '1px solid var(--border)', borderRadius: 10,
+                                        padding: '12px 14px', color: '#fff', fontSize: 14, resize: 'vertical', lineHeight: 1.6,
+                                    }}
+                                />
+                            </div>
+
+                            {/* Rules */}
+                            <div>
+                                <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 6 }}>Rules</label>
+                                <textarea
+                                    value={rulesDraft}
+                                    onChange={e => setRulesDraft(e.target.value)}
+                                    placeholder={"1. Best of 1\n2. No timeouts\n3. Must check in 10 minutes before start\n..."}
+                                    rows={8}
+                                    style={{
+                                        width: '100%', background: '#111', border: '1px solid var(--border)', borderRadius: 10,
+                                        padding: '12px 14px', color: '#fff', fontSize: 14, resize: 'vertical', lineHeight: 1.6,
+                                        fontFamily: 'inherit',
+                                    }}
+                                />
+                            </div>
+
+                            {/* Prize Image URL */}
+                            <div>
+                                <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 6 }}>Prize Image URL</label>
+                                <input
+                                    value={prizeImgDraft}
+                                    onChange={e => setPrizeImgDraft(e.target.value)}
+                                    placeholder="https://example.com/prize.png"
+                                    style={{
+                                        width: '100%', background: '#111', border: '1px solid var(--border)', borderRadius: 10,
+                                        padding: '10px 14px', color: '#fff', fontSize: 14,
+                                    }}
+                                />
+                                {prizeImgDraft && (
+                                    <div style={{ marginTop: 10, padding: 12, background: '#0a0a0a', borderRadius: 10, border: '1px solid var(--border)', textAlign: 'center' }}>
+                                        <img src={prizeImgDraft} alt="Prize preview" style={{ maxWidth: '100%', maxHeight: 200, objectFit: 'contain', borderRadius: 6 }} />
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div style={{ display: 'flex', gap: 8 }}>
+                                <button className="btn btn-primary btn-sm" onClick={handleSaveDesc} disabled={savingDesc} style={{ padding: '8px 20px' }}>
+                                    {savingDesc ? 'Saving...' : 'Save Changes'}
+                                </button>
+                                <button className="btn btn-sm" onClick={() => setEditingDesc(false)} style={{ padding: '8px 16px' }}>Cancel</button>
+                            </div>
+                        </div>
+                    ) : (
+                        /* ─── VIEW MODE ─── */
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                            {/* Prize Image */}
+                            {(prizeImage || tournament.prize_image_url) && (
+                                <div style={{
+                                    padding: 20, borderRadius: 14,
+                                    background: 'linear-gradient(135deg, rgba(255,215,0,0.08), rgba(255,140,0,0.05))',
+                                    border: '1px solid rgba(255,215,0,0.2)',
+                                    textAlign: 'center',
+                                }}>
+                                    <img
+                                        src={prizeImage || tournament.prize_image_url || ''}
+                                        alt={tournament.prize_name || 'Prize'}
+                                        style={{ maxWidth: '100%', maxHeight: 240, objectFit: 'contain', borderRadius: 8 }}
+                                    />
+                                    {tournament.prize_name && (
+                                        <div style={{ marginTop: 10, fontSize: 16, fontWeight: 700, color: 'var(--gold)' }}>
+                                            🏆 {tournament.prize_name}
+                                        </div>
+                                    )}
+                                    {tournament.prize_pool && (
+                                        <div style={{ marginTop: 4, fontSize: 14, color: 'var(--text-secondary)' }}>
+                                            {tournament.prize_pool}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Description */}
+                            <div style={{
+                                padding: '20px 24px', borderRadius: 14,
+                                background: 'var(--card-bg)', border: '1px solid var(--border)',
+                            }}>
+                                <h3 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
+                                    📋 Description
+                                </h3>
+                                {tournament.description ? (
+                                    <p style={{ margin: 0, fontSize: 14, lineHeight: 1.7, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
+                                        {tournament.description}
+                                    </p>
+                                ) : (
+                                    <p style={{ margin: 0, fontSize: 14, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                                        No description provided yet.{canEdit ? ' Click Edit to add one.' : ''}
+                                    </p>
+                                )}
+                            </div>
+
+                            {/* Rules */}
+                            <div style={{
+                                padding: '20px 24px', borderRadius: 14,
+                                background: 'var(--card-bg)', border: '1px solid var(--border)',
+                            }}>
+                                <h3 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
+                                    📜 Rules
+                                </h3>
+                                {tournament.rules ? (
+                                    <div style={{ fontSize: 14, lineHeight: 1.8, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
+                                        {tournament.rules}
+                                    </div>
+                                ) : (
+                                    <p style={{ margin: 0, fontSize: 14, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                                        No rules set yet.{canEdit ? ' Click Edit to add rules.' : ''}
+                                    </p>
+                                )}
+                            </div>
+                        </div>
                     )}
                 </div>
             )}

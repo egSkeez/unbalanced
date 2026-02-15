@@ -136,6 +136,10 @@ export const createTournament = (data: {
     fetchApi('/api/tournaments', { method: 'POST', body: JSON.stringify(data), headers: { 'Authorization': `Bearer ${token}` } });
 export const getTournament = (id: string) =>
     fetchApi(`/api/tournaments/${id}`);
+export const updateTournament = (id: string, data: {
+    description?: string; rules?: string; prize_image_url?: string;
+}, token: string) =>
+    fetchApi(`/api/tournaments/${id}`, { method: 'PUT', body: JSON.stringify(data), headers: { 'Authorization': `Bearer ${token}` } });
 export const joinTournament = (id: string, token: string) =>
     fetchApi(`/api/tournaments/${id}/join`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
 export const leaveTournament = (id: string, token: string) =>

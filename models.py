@@ -48,6 +48,7 @@ class Tournament(Base):
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(String, nullable=False)
     description = Column(Text, nullable=True)
+    rules = Column(Text, nullable=True)
     format = Column(String, nullable=False, default=TournamentFormat.single_elimination.value)
     prize_image_url = Column(String, nullable=True)
     prize_name = Column(String, nullable=True)
