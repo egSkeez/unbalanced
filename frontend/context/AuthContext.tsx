@@ -94,15 +94,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     // Periodic user refresh (keeps sidebar "Live Draft" indicator current)
     useEffect(() => {
-        if (!user || !token) return;
+        if (!token) return;
 
         const refreshInterval = setInterval(async () => {
             const storedToken = Cookies.get("token");
             if (!storedToken) return;
             const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
             try {
-                const { data } = await axios.get(`${apiBase}/api/auth/me`);
-                // Only update draft-related fields to avoid resetting ping
+                const { data } = await axios.get(`${apiBase}/api/auth/me`, {
+                    headers: { Authorization: `Bearer ${storedToken}` },
+                });
                 setUser(prev => prev ? {
                     ...prev,
                     in_draft: data.in_draft,
@@ -113,10 +114,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             } catch {
                 // Ignore refresh errors
             }
-        }, 5000); // 5 seconds
+        }, 3000); // 3 seconds — fast enough for draft indicator
 
         return () => clearInterval(refreshInterval);
-    }, [user?.username, token]);
+    }, [token]);
 
 
     const login = (newToken: string, userData: User) => {

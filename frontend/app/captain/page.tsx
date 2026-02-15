@@ -72,22 +72,29 @@ export default function CaptainPage() {
 
     // ─── AUTO-RECOVER: If user is already a captain, restore their session ───
     useEffect(() => {
-        if (authLoading || !user || session) return;
+        if (authLoading || !user) return;
+        // Always verify captain state — even if session exists — to detect draft changes
         getCaptainState(user.display_name)
             .then(state => {
-                // Only restore if the state has a valid draft AND the user is on one of the teams
                 if (state?.pin && state?.draft) {
                     const isInDraft = state.draft.team1?.includes(user.display_name) ||
                         state.draft.team2?.includes(user.display_name);
                     if (isInDraft) {
                         setSession(state);
+                    } else {
+                        setSession(null);
                     }
+                } else {
+                    // Captain state returned but no valid draft — clear session
+                    setSession(null);
                 }
             })
             .catch(() => {
-                // Not a captain yet
+                // Not a captain (401) — clear any stale session
+                setSession(null);
             });
-    }, [user, authLoading, session]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user, authLoading]);
 
     // ─── POLL FOR STATE UPDATES ──────────────────────────
     const pollState = useCallback(async () => {

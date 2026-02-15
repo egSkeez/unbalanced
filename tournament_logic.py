@@ -273,12 +273,18 @@ async def report_match(match_id: str, winner_id: str, score: str | None, db: Asy
     if score:
         match.score = score
 
+    tournament_id = match.tournament_id
+
+    # Flush the winner change to DB before re-fetching tournament relationships.
+    # This prevents selectinload from returning stale data that overwrites our change.
+    await db.flush()
+
     # Fetch tournament to determine format
     from sqlalchemy.orm import selectinload
     result = await db.execute(
         select(Tournament)
         .options(selectinload(Tournament.matches), selectinload(Tournament.participants))
-        .filter(Tournament.id == match.tournament_id)
+        .filter(Tournament.id == tournament_id)
     )
     tournament = result.scalars().first()
 
@@ -320,22 +326,22 @@ async def report_match(match_id: str, winner_id: str, score: str | None, db: Asy
                 tournament.status = TournamentStatus.completed.value
                 tournament.winner_id = winner_id
         else:
-            # Group stage match — check if all group matches are complete
-            all_matches = [m for m in tournament.matches if m.group_id == 0 or m.group_id is None]
-            all_done = all(m.winner_id is not None for m in all_matches if m.id != match_id)
+            # Group stage match — check if all group matches are complete.
+            # Use the freshly loaded tournament.matches (which includes our flushed winner).
+            group_matches = [m for m in tournament.matches if m.group_id == 0 or m.group_id is None]
+            all_done = all(m.winner_id is not None for m in group_matches)
             if all_done:
                 has_playoffs = tournament.playoffs if hasattr(tournament, 'playoffs') else False
                 if has_playoffs:
                     # Generate playoff bracket for top 4
-                    await _generate_playoff_bracket(tournament, all_matches, match_id, winner_id, db)
+                    await _generate_playoff_bracket(tournament, group_matches, None, None, db)
                     tournament.status = TournamentStatus.playoffs.value
                 else:
                     # Determine winner by most wins
                     wins: dict[str, int] = {}
-                    for m in all_matches:
-                        w = m.winner_id if m.id != match_id else winner_id
-                        if w:
-                            wins[w] = wins.get(w, 0) + 1
+                    for m in group_matches:
+                        if m.winner_id:
+                            wins[m.winner_id] = wins.get(m.winner_id, 0) + 1
                     if wins:
                         tournament.winner_id = max(wins, key=wins.get)
                         tournament.status = TournamentStatus.completed.value
@@ -347,15 +353,16 @@ async def report_match(match_id: str, winner_id: str, score: str | None, db: Asy
 async def _generate_playoff_bracket(
     tournament: Tournament,
     group_matches: list,
-    current_match_id: str,
-    current_winner_id: str,
+    current_match_id: str | None,
+    current_winner_id: str | None,
     db: AsyncSession,
 ):
     """Generate a 4-player single elimination playoff bracket from top 4 in RR standings."""
     # Calculate standings - initialize with all participants to handle players with 0 wins
     standings: dict[str, int] = {p.user_id: 0 for p in (tournament.participants or [])}
     for m in group_matches:
-        w = m.winner_id if m.id != current_match_id else current_winner_id
+        # All winners are already flushed to the match objects
+        w = m.winner_id
         if w and w in standings:
             standings[w] = standings.get(w, 0) + 1
 
