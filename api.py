@@ -62,26 +62,28 @@ async def lifespan(app: FastAPI):
     await init_async_db() # New Async (creates all tables including tournaments)
     await init_user_accounts() # New Async
     # Migrate tournament columns for existing databases
+    # IMPORTANT: Each ALTER TABLE must be in its own transaction because
+    # PostgreSQL aborts the entire transaction if any statement fails
+    # (e.g. "column already exists"), making subsequent statements fail too.
     try:
         from sqlalchemy import text as sa_text
         from database import sync_engine
-        with sync_engine.begin() as conn:
-            # Tournaments
-            for col in ["tournament_date", "description", "prize_pool"]:
-                try: conn.execute(sa_text(f"ALTER TABLE tournaments ADD COLUMN {col} TEXT"))
-                except Exception: pass
-            try: conn.execute(sa_text("ALTER TABLE tournaments ADD COLUMN format TEXT DEFAULT 'single_elimination'"))
-            except Exception: pass
-            
-            # Participants
-            try: conn.execute(sa_text("ALTER TABLE tournament_participants ADD COLUMN checked_in BOOLEAN DEFAULT 0"))
-            except Exception: pass
-            
-            # Matches
-            try: conn.execute(sa_text("ALTER TABLE tournament_matches ADD COLUMN group_id INTEGER"))
-            except Exception: pass
-            try: conn.execute(sa_text("ALTER TABLE tournament_matches ADD COLUMN score TEXT"))
-            except Exception: pass
+        migration_cols = [
+            ("tournaments", "tournament_date", "TEXT"),
+            ("tournaments", "description", "TEXT"),
+            ("tournaments", "prize_pool", "TEXT"),
+            ("tournaments", "format", "TEXT DEFAULT 'single_elimination'"),
+            ("tournament_participants", "checked_in", "BOOLEAN DEFAULT FALSE"),
+            ("tournament_matches", "group_id", "INTEGER"),
+            ("tournament_matches", "score", "TEXT"),
+        ]
+        for table, col, col_type in migration_cols:
+            try:
+                with sync_engine.begin() as conn:
+                    conn.execute(sa_text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"))
+                    print(f"Migration: added {table}.{col}")
+            except Exception:
+                pass  # column already exists
     except Exception as e:
         print(f"Migration error: {e}")
     yield
