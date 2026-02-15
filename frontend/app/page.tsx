@@ -380,6 +380,9 @@ export default function MixerPage() {
         {lobbyLink ? (
           <div className="lobby-box" style={{ marginBottom: 24 }}>
             <div className="lobby-box-title">🚀 LOBBY READY</div>
+            <p style={{ textAlign: 'center', color: 'var(--text-primary)', marginBottom: 16, fontSize: 18, fontWeight: 600 }}>
+              ⚠️ EVERYONE JOIN THE SERVER NOW ⚠️
+            </p>
             <div className="lobby-box-link">
               <a href={lobbyLink} target="_blank" rel="noopener noreferrer">{lobbyLink}</a>
             </div>
@@ -389,9 +392,11 @@ export default function MixerPage() {
             </div>
           </div>
         ) : (
-          <div style={{ textAlign: 'center', marginBottom: 24 }}>
-            <button className="btn" onClick={handleCreateLobby}>🔧 Create Cybershoke Lobby</button>
-          </div>
+          (user?.role === 'admin' || (draft.created_by && user?.display_name === draft.created_by)) && (
+            <div style={{ textAlign: 'center', marginBottom: 24 }}>
+              <button className="btn" onClick={handleCreateLobby}>🔧 Create Cybershoke Lobby</button>
+            </div>
+          )
         )}
 
         {/* Admin controls */}
@@ -400,7 +405,7 @@ export default function MixerPage() {
           <button className="btn" onClick={handleReroll}>🔀 Reroll Teams</button>
           <button className="btn btn-danger" onClick={handleClear}>🗑️ Clear Draft</button>
 
-          {user?.role === 'admin' && lobbyLink && (
+          {(user?.role === 'admin' || (draft.created_by && user?.display_name === draft.created_by)) && lobbyLink && (
             <button className="btn btn-primary" onClick={handleBroadcast}>
               📢 Send to Discord
             </button>
