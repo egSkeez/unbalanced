@@ -234,8 +234,8 @@ async def start_tournament(tournament_id: str, db: AsyncSession) -> Tournament:
     tournament = result.scalars().first()
     if not tournament:
         raise ValueError("Tournament not found")
-    if tournament.status != TournamentStatus.registration.value:
-        raise ValueError("Tournament is not in 'registration' status")
+    if tournament.status not in (TournamentStatus.registration.value, "open"):
+        raise ValueError(f"Tournament is not in 'registration' status (current: {tournament.status})")
 
     result = await db.execute(
         select(TournamentParticipant)

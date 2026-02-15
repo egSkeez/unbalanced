@@ -1611,103 +1611,34 @@ async def update_tournament(
     return serialize_tournament(tournament)
 
 def _get_player_stats_safe(player_name: str) -> dict | None:
-    """Fetch player aggregate stats using sync_engine. Returns None if unavailable."""
-    from database import sync_engine
+    """Fetch player aggregate stats. Uses local SQLite (match_stats_db) where stats actually live."""
     try:
+        # Use the existing function which reads from local SQLite directly
+        from match_stats_db import get_player_aggregate_stats
+        df = get_player_aggregate_stats(player_name)
+        if df is not None and not df.empty and df.iloc[0]['matches_played'] > 0:
+            row = df.iloc[0]
+            return {
+                "matches_played": int(row['matches_played']),
+                "total_kills": int(row['total_kills']) if row['total_kills'] else 0,
+                "total_deaths": int(row['total_deaths']) if row['total_deaths'] else 0,
+                "total_assists": int(row['total_assists']) if row['total_assists'] else 0,
+                "avg_adr": float(row['avg_adr']) if row['avg_adr'] else None,
+                "avg_rating": float(row['avg_rating']) if row['avg_rating'] else None,
+                "avg_hs_pct": float(row['avg_hs_pct']) if row['avg_hs_pct'] else None,
+                "overall_kd": float(row['overall_kd']) if row['overall_kd'] else None,
+                "wins": int(row['wins']) if 'wins' in row else 0,
+                "losses": int(row['losses']) if 'losses' in row else 0,
+                "winrate_pct": float(row['winrate_pct']) if 'winrate_pct' in row else 0,
+            }
+    except Exception as e:
+        print(f"[WARN] get_player_aggregate_stats failed for {player_name}: {e}")
+
+    # Fallback: try basic player data from sync_engine
+    try:
+        from database import sync_engine
+        from sqlalchemy import text as sa_text
         with sync_engine.connect() as conn:
-            from sqlalchemy import text as sa_text
-            
-            # First get steamid for this player
-            sid_row = conn.execute(sa_text(
-                "SELECT steamid FROM players WHERE name = :name"
-            ), {"name": player_name}).fetchone()
-            steamid = sid_row[0] if sid_row else None
-
-            if steamid:
-                where = "(pms.steamid = :sid OR pms.player_name = :name)"
-                params = {"sid": steamid, "name": player_name}
-            else:
-                where = "pms.player_name = :name"
-                params = {"name": player_name}
-
-            is_pg = sync_engine.name == 'postgresql'
-            cast = "::numeric" if is_pg else ""
-            
-            # Try full query with match_details join
-            try:
-                query = sa_text(f"""
-                    SELECT
-                        COUNT(*) as matches_played,
-                        COALESCE(SUM(pms.kills), 0) as total_kills,
-                        COALESCE(SUM(pms.deaths), 0) as total_deaths,
-                        COALESCE(SUM(pms.assists), 0) as total_assists,
-                        ROUND(AVG(NULLIF(pms.adr, 0)){cast}, 1) as avg_adr,
-                        ROUND(AVG(NULLIF(pms.rating, 0)){cast}, 2) as avg_rating,
-                        ROUND(AVG(NULLIF(pms.headshot_pct, 0)){cast}, 1) as avg_hs_pct,
-                        ROUND((SUM(pms.kills) * 1.0 / NULLIF(SUM(pms.deaths), 0)){cast}, 2) as overall_kd,
-                        COUNT(CASE WHEN pms.match_result = 'W' THEN 1 END) as wins,
-                        COUNT(CASE WHEN pms.match_result = 'L' THEN 1 END) as losses
-                    FROM player_match_stats pms
-                    JOIN match_details md ON pms.match_id = md.match_id
-                    WHERE {where} AND pms.rating IS NOT NULL
-                """)
-                row = conn.execute(query, params).fetchone()
-                if row and row[0] > 0:
-                    matches = row[0]
-                    wins = row[8]
-                    return {
-                        "matches_played": matches,
-                        "total_kills": row[1],
-                        "total_deaths": row[2],
-                        "total_assists": row[3],
-                        "avg_adr": float(row[4]) if row[4] else None,
-                        "avg_rating": float(row[5]) if row[5] else None,
-                        "avg_hs_pct": float(row[6]) if row[6] else None,
-                        "overall_kd": float(row[7]) if row[7] else None,
-                        "wins": wins,
-                        "losses": row[9],
-                        "winrate_pct": round((wins / matches) * 100, 1) if matches > 0 else 0,
-                    }
-            except Exception as e:
-                print(f"[WARN] Stats query with JOIN failed for {player_name}: {e}")
-                # Try simpler query without join
-                try:
-                    query = sa_text(f"""
-                        SELECT
-                            COUNT(*) as matches_played,
-                            COALESCE(SUM(kills), 0),
-                            COALESCE(SUM(deaths), 0),
-                            COALESCE(SUM(assists), 0),
-                            ROUND(AVG(NULLIF(adr, 0)){cast}, 1),
-                            ROUND(AVG(NULLIF(rating, 0)){cast}, 2),
-                            ROUND(AVG(NULLIF(headshot_pct, 0)){cast}, 1),
-                            ROUND((SUM(kills) * 1.0 / NULLIF(SUM(deaths), 0)){cast}, 2),
-                            COUNT(CASE WHEN match_result = 'W' THEN 1 END),
-                            COUNT(CASE WHEN match_result = 'L' THEN 1 END)
-                        FROM player_match_stats
-                        WHERE {where.replace('pms.', '')} AND rating IS NOT NULL
-                    """)
-                    row = conn.execute(query, params).fetchone()
-                    if row and row[0] > 0:
-                        matches = row[0]
-                        wins = row[8]
-                        return {
-                            "matches_played": matches,
-                            "total_kills": row[1],
-                            "total_deaths": row[2],
-                            "total_assists": row[3],
-                            "avg_adr": float(row[4]) if row[4] else None,
-                            "avg_rating": float(row[5]) if row[5] else None,
-                            "avg_hs_pct": float(row[6]) if row[6] else None,
-                            "overall_kd": float(row[7]) if row[7] else None,
-                            "wins": wins,
-                            "losses": row[9],
-                            "winrate_pct": round((wins / matches) * 100, 1) if matches > 0 else 0,
-                        }
-                except Exception as e2:
-                    print(f"[WARN] Simple stats query also failed for {player_name}: {e2}")
-
-            # Fallback to basic player data
             row = conn.execute(sa_text(
                 "SELECT elo, aim, util, team_play FROM players WHERE name = :name"
             ), {"name": player_name}).fetchone()
@@ -1719,7 +1650,7 @@ def _get_player_stats_safe(player_name: str) -> dict | None:
                     "team_play": round(row[3], 1) if row[3] else None,
                 }
     except Exception as e:
-        print(f"[WARN] Failed to fetch stats for {player_name}: {e}")
+        print(f"[WARN] Fallback stats also failed for {player_name}: {e}")
     return None
 
 
