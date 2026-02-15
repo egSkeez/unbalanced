@@ -48,11 +48,18 @@ def create_cybershoke_lobby_api(admin_name="Skeez"):
     try:
         response = requests.post(url, headers=get_headers(admin_name), json=payload, timeout=10)
         
+        # Log response for debugging
+        print(f"Cybershoke create response: {response.status_code} - {response.text}")
+
         if response.status_code == 200:
             data = response.json()
             if data.get("result") == "success":
-                lobby_id = data["data"]["id_lobby"]
+                lobby_id = data.get("data", {}).get("id_lobby")
                 
+                if not lobby_id:
+                    print(f"API returned success but no lobby_id for {admin_name}: {data}")
+                    return None, None
+
                 # Persist to lobby history
                 try:
                    from match_stats_db import add_lobby
