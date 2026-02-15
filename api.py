@@ -718,13 +718,14 @@ def update_match_elo(req: EloUpdateRequest):
 
 @app.get("/api/veto/state")
 def veto_state():
-    rem, prot, turn_team = get_veto_state()
+    rem, picked, turn_team = get_veto_state()
     if rem is None:
         return {"initialized": False}
     return {
         "initialized": True,
         "remaining": rem,
-        "protected": prot,
+        "protected": picked,
+        "picked": picked,
         "turn_team": turn_team,
         "complete": len(rem) == 0,
     }
@@ -742,7 +743,7 @@ def veto_init():
 
 @app.post("/api/veto/action")
 def veto_action(req: VetoActionRequest):
-    rem, prot, turn_team = get_veto_state()
+    rem, picked, turn_team = get_veto_state()
     if rem is None:
         raise HTTPException(400, "Veto not initialized")
     if req.map_name not in rem:
@@ -755,26 +756,27 @@ def veto_action(req: VetoActionRequest):
     _, _, n_a, n_b, *_ = saved
     opp = n_b if turn_team == n_a else n_a
 
-    is_protection = len(prot) < 2
-    if is_protection:
-        prot.append(req.map_name)
+    is_pick = len(picked) < 2
+    if is_pick:
+        picked.append(req.map_name)
     rem.remove(req.map_name)
 
-    # Check if veto is over
-    if len(rem) == 1 and not is_protection:
+    # Check if veto is over: 1 map remains after all bans
+    if len(rem) == 1 and not is_pick:
         final_map = rem[0]
-        final_three = prot + [final_map]
+        final_three = picked + [final_map]
         update_draft_map(final_three)
         init_veto_state([], "")
-        return {"complete": True, "final_maps": final_three}
+        return {"complete": True, "final_maps": final_three, "picked": picked}
     else:
-        update_veto_turn(rem, prot, opp)
+        update_veto_turn(rem, picked, opp)
         return {
             "complete": False,
             "remaining": rem,
-            "protected": prot,
+            "protected": picked,
+            "picked": picked,
             "next_turn": opp,
-            "phase": "protect" if len(prot) < 2 else "ban"
+            "phase": "pick" if len(picked) < 2 else "ban"
         }
 
 # ──────────────────────────────────────────────
@@ -896,17 +898,25 @@ def captain_claim(req: CaptainLoginRequest):
     # Check if already claimed (by this player)
     c.execute("SELECT captain_name, pin, vote FROM current_draft_votes WHERE LOWER(captain_name) = LOWER(?)", (name,))
     existing = c.fetchone()
-    conn.close()
 
     if existing:
         # Already a captain — just return their state
-        pass
+        conn.close()
     else:
+        # Check if the placeholder for this team still exists (spot not yet taken)
+        placeholder = f"__TEAM{team_num}__"
+        c.execute("SELECT 1 FROM current_draft_votes WHERE captain_name = ?", (placeholder,))
+        spot_available = c.fetchone()
+        conn.close()
+
+        if not spot_available:
+            raise HTTPException(409, "Captain for your team has already stepped in")
+
         # Try to claim the spot
         pin = str(uuid.uuid4())
         success = claim_captain_spot(team_num, name, pin)
         if not success:
-            raise HTTPException(409, "Captain spot already taken by another player")
+            raise HTTPException(409, "Captain for your team has already stepped in")
 
     # Return full captain state (same as /api/captain/state)
     conn = sqlite3.connect('cs2_history.db')
@@ -926,13 +936,14 @@ def captain_claim(req: CaptainLoginRequest):
     votes_df = get_vote_status()
     votes = df_to_records(votes_df) if not votes_df.empty else []
 
-    rem, prot, turn_team = get_veto_state()
+    rem, picked, turn_team = get_veto_state()
     veto_data = None
     if rem is not None:
         veto_data = {
             "initialized": True,
             "remaining": rem,
-            "protected": prot,
+            "protected": picked,
+            "picked": picked,
             "turn_team": turn_team,
             "complete": len(rem) == 0,
         }
@@ -976,13 +987,14 @@ def captain_state(name: str = Query(...)):
     votes = df_to_records(votes_df) if not votes_df.empty else []
 
     # Get veto state
-    rem, prot, turn_team = get_veto_state()
+    rem, picked, turn_team = get_veto_state()
     veto_data = None
     if rem is not None:
         veto_data = {
             "initialized": True,
             "remaining": rem,
-            "protected": prot,
+            "protected": picked,
+            "picked": picked,
             "turn_team": turn_team,
             "complete": len(rem) == 0,
         }

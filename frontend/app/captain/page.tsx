@@ -4,7 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import { getPingColor } from '@/lib/utils';
 import {
     getDraftState, getConstants, captainClaim,
-    getCaptainState, submitVote, vetoAction
+    getCaptainState, submitVote, vetoAction, broadcastToDiscord
 } from '../lib/api';
 
 interface DraftInfo {
@@ -21,6 +21,7 @@ interface VetoInfo {
     initialized: boolean;
     remaining: string[];
     protected: string[];
+    picked: string[];
     turn_team: string;
     complete: boolean;
 }
@@ -48,6 +49,7 @@ export default function CaptainPage() {
     const [steppingIn, setSteppingIn] = useState(false);
     const [error, setError] = useState('');
     const [actionLoading, setActionLoading] = useState(false);
+    const [broadcasting, setBroadcasting] = useState(false);
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     // ─── LOAD DRAFT STATE + CONSTANTS ON MOUNT ───────────
@@ -71,13 +73,12 @@ export default function CaptainPage() {
     // ─── AUTO-RECOVER: If user is already a captain, restore their session ───
     useEffect(() => {
         if (authLoading || !user || session) return;
-        // Try to get existing captain state — if user already stepped in
         getCaptainState(user.display_name)
             .then(state => {
                 if (state?.pin) setSession(state);
             })
             .catch(() => {
-                // Not a captain yet — that's fine, they can step in later
+                // Not a captain yet
             });
     }, [user, authLoading, session]);
 
@@ -86,11 +87,8 @@ export default function CaptainPage() {
         if (!session) return;
         try {
             const state = await getCaptainState(session.captain_name);
-            // Check if a reroll happened: votes reset, our captain spot was wiped
             const anyReroll = state.all_votes?.some((v: { vote: string }) => v.vote === 'Reroll');
             if (anyReroll) {
-                // A reroll vote was cast — new teams are being generated
-                // Wait a moment then reset to draft preview
                 setTimeout(async () => {
                     setSession(null);
                     setError('');
@@ -103,7 +101,6 @@ export default function CaptainPage() {
             }
             setSession(prev => prev ? { ...prev, ...state } : null);
         } catch {
-            // Captain no longer in votes table — reroll happened and spots were reset
             setSession(null);
             setError('');
             try {
@@ -139,7 +136,6 @@ export default function CaptainPage() {
         setSteppingIn(true);
         setError('');
         try {
-            // Claim captain spot + get full state in one call (no JWT needed)
             const state = await captainClaim(user.display_name);
             setSession(state);
         } catch (e: unknown) {
@@ -156,7 +152,6 @@ export default function CaptainPage() {
         try {
             await submitVote({ token: session.pin, vote });
             if (vote === 'Reroll') {
-                // Reroll auto-generates new teams — reset session, load new draft
                 setTimeout(async () => {
                     setSession(null);
                     try {
@@ -188,6 +183,28 @@ export default function CaptainPage() {
             setError(e instanceof Error ? e.message : 'Veto action failed');
         }
         setActionLoading(false);
+    };
+
+    // ─── BROADCAST TO DISCORD ────────────────────────────
+    const handleBroadcast = async () => {
+        if (!session?.draft) return;
+        setBroadcasting(true);
+        setError('');
+        try {
+            const draft = session.draft;
+            const maps = draft.map_pick || session.veto?.picked?.join(',') || '';
+            await broadcastToDiscord({
+                name_a: draft.name_a,
+                team1: draft.team1,
+                name_b: draft.name_b,
+                team2: draft.team2,
+                maps,
+                lobby_link: '',
+            });
+        } catch (e: unknown) {
+            setError(e instanceof Error ? e.message : 'Failed to send to Discord');
+        }
+        setBroadcasting(false);
     };
 
     // ─── LOADING ─────────────────────────────────────────
@@ -229,6 +246,18 @@ export default function CaptainPage() {
         const anyReroll = allVotes.some(v => v.vote === 'Reroll');
         const otherCaptain = allVotes.find(v => v.captain_name !== session.captain_name);
         const isMyTurn = session.veto && session.veto.turn_team === myTeamName;
+        const pickedMaps = session.veto?.picked || session.veto?.protected || [];
+        const isPickPhase = pickedMaps.length < 2;
+        const isAdmin = user?.role === 'admin';
+        const vetoComplete = session.veto?.complete || !!draft.map_pick;
+
+        // Parse final maps in play order
+        const finalMaps: string[] = [];
+        if (draft.map_pick) {
+            finalMaps.push(...draft.map_pick.split(',').map((m: string) => m.trim()));
+        } else if (session.veto?.complete && pickedMaps.length > 0) {
+            finalMaps.push(...pickedMaps);
+        }
 
         return (
             <div className="page-container">
@@ -294,7 +323,7 @@ export default function CaptainPage() {
                 {session.current_vote === 'Waiting' && !anyReroll && (
                     <div className="card" style={{ textAlign: 'center', padding: 32, marginBottom: 32, border: '2px solid var(--gold)' }}>
                         <h2 className="font-orbitron" style={{ fontSize: 20, color: 'var(--gold)', marginBottom: 8 }}>⚖️ APPROVE THESE TEAMS?</h2>
-                        <p style={{ color: 'var(--text-secondary)', marginBottom: 20 }}>Both captains must approve to proceed to map veto</p>
+                        <p style={{ color: 'var(--text-secondary)', marginBottom: 20 }}>Both captains must approve to proceed to map picks</p>
 
                         {otherCaptain && (
                             <div style={{ marginBottom: 20, padding: '8px 16px', background: 'var(--bg-glass)', borderRadius: 'var(--radius-md)', display: 'inline-block' }}>
@@ -346,7 +375,7 @@ export default function CaptainPage() {
                     <div className="card" style={{ textAlign: 'center', padding: 32, marginBottom: 32 }}>
                         <div style={{ fontSize: 40, marginBottom: 12 }}>🪙</div>
                         <h3 className="font-orbitron text-gold" style={{ marginBottom: 8 }}>BOTH APPROVED!</h3>
-                        <p style={{ color: 'var(--text-secondary)' }}>Waiting for the host to start the coin flip &amp; veto...</p>
+                        <p style={{ color: 'var(--text-secondary)' }}>Coin flip in progress... Map picks starting soon.</p>
                         <div className="spinner" style={{ margin: '16px auto' }} />
                     </div>
                 )}
@@ -355,24 +384,30 @@ export default function CaptainPage() {
                 {session.veto && !session.veto.complete && session.veto.remaining.length > 0 && (
                     <div className="card" style={{ marginBottom: 32, border: isMyTurn ? '2px solid var(--neon-green)' : '1px solid var(--border)' }}>
                         <div className={`veto-turn-indicator ${isMyTurn
-                            ? ((session.veto.protected?.length || 0) < 2 ? 'veto-turn-protect' : 'veto-turn-ban')
+                            ? (isPickPhase ? 'veto-turn-protect' : 'veto-turn-ban')
                             : 'veto-turn-waiting'
                             }`}>
                             {isMyTurn ? (
-                                (session.veto.protected?.length || 0) < 2
-                                    ? '🛡️ YOUR TURN — PROTECT A MAP'
+                                isPickPhase
+                                    ? `🗺️ YOUR TURN — PICK MAP ${pickedMaps.length + 1} TO PLAY`
                                     : '❌ YOUR TURN — BAN A MAP'
                             ) : (
                                 `⏳ ${session.veto.turn_team} is choosing...`
                             )}
                         </div>
 
-                        {/* Show protected maps */}
-                        {session.veto.protected && session.veto.protected.length > 0 && (
-                            <div style={{ display: 'flex', gap: 8, marginBottom: 16, justifyContent: 'center' }}>
-                                {session.veto.protected.map(m => (
-                                    <div key={m} className="protected-map-badge">
-                                        🛡️ {m}
+                        {/* Show picked maps */}
+                        {pickedMaps.length > 0 && (
+                            <div style={{ display: 'flex', gap: 12, marginBottom: 16, justifyContent: 'center' }}>
+                                {pickedMaps.map((m, i) => (
+                                    <div key={m} style={{
+                                        display: 'flex', alignItems: 'center', gap: 8,
+                                        padding: '8px 16px', background: 'var(--bg-glass)',
+                                        borderRadius: 'var(--radius-md)', border: '1px solid var(--neon-green)',
+                                    }}>
+                                        <span style={{ color: 'var(--neon-green)', fontWeight: 700, fontSize: 12 }}>MAP {i + 1}</span>
+                                        <img src={constants.map_logos[m]} alt={m} style={{ width: 32, height: 20, borderRadius: 4, objectFit: 'cover' }} />
+                                        <span style={{ fontWeight: 600 }}>{m}</span>
                                     </div>
                                 ))}
                             </div>
@@ -382,21 +417,21 @@ export default function CaptainPage() {
                         <div className="grid-7">
                             {constants.map_pool.map(m => {
                                 const isRemaining = session.veto!.remaining.includes(m);
-                                const isProtected = session.veto!.protected?.includes(m);
-                                const isBanned = !isRemaining && !isProtected;
-                                const canClick = isMyTurn && isRemaining && !isProtected;
+                                const isPicked = pickedMaps.includes(m);
+                                const isBanned = !isRemaining && !isPicked;
+                                const canClick = isMyTurn && isRemaining && !isPicked;
 
                                 return (
                                     <div
                                         key={m}
-                                        className={`map-card ${isBanned ? 'banned' : ''} ${isProtected ? 'protected' : ''}`}
+                                        className={`map-card ${isBanned ? 'banned' : ''} ${isPicked ? 'protected' : ''}`}
                                         onClick={() => canClick ? handleVetoPick(m) : null}
                                         style={{ cursor: canClick ? 'pointer' : 'default', opacity: actionLoading && canClick ? 0.5 : undefined }}
                                     >
                                         <img src={constants.map_logos[m]} alt={m} />
                                         <div className="map-card-name">{m}</div>
                                         {isBanned && <div className="banned-overlay">BANNED</div>}
-                                        {isProtected && <div style={{ position: 'absolute', top: 4, right: 4, fontSize: 18 }}>🛡️</div>}
+                                        {isPicked && <div style={{ position: 'absolute', top: 4, right: 4, fontSize: 14, fontWeight: 700, color: 'var(--neon-green)' }}>MAP {pickedMaps.indexOf(m) + 1}</div>}
                                     </div>
                                 );
                             })}
@@ -404,17 +439,39 @@ export default function CaptainPage() {
                     </div>
                 )}
 
-                {/* ─── PHASE 3: VETO COMPLETE / MAP SELECTED ─── */}
-                {(session.veto?.complete || draft.map_pick) && (
+                {/* ─── PHASE 3: VETO COMPLETE / MAPS SELECTED ─── */}
+                {vetoComplete && (
                     <div className="lobby-box" style={{ marginBottom: 32 }}>
-                        <div className="lobby-box-title">🗺️ MAP SELECTED</div>
-                        <div className="font-orbitron text-gold" style={{ fontSize: 28, fontWeight: 800, marginBottom: 16 }}>
-                            {draft.map_pick || session.veto?.protected?.join(', ')}
+                        <div className="lobby-box-title">🗺️ MAPS SELECTED</div>
+                        <div style={{ display: 'flex', justifyContent: 'center', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
+                            {finalMaps.map((m, i) => (
+                                <div key={m} style={{ textAlign: 'center' }}>
+                                    <div style={{ fontSize: 12, fontWeight: 700, color: i < 2 ? 'var(--neon-green)' : 'var(--gold)', marginBottom: 4 }}>
+                                        {i < 2 ? `MAP ${i + 1}` : 'DECIDER'}
+                                    </div>
+                                    <img src={constants.map_logos[m]} alt={m} style={{ width: 140, borderRadius: 8 }} />
+                                    <div className="font-orbitron" style={{ fontSize: 14, fontWeight: 700, marginTop: 4 }}>{m}</div>
+                                </div>
+                            ))}
                         </div>
-                        {(draft.map_pick || '').split(',').map(m => (
-                            <img key={m.trim()} src={constants.map_logos[m.trim()]} alt={m.trim()} style={{ width: '100%', maxWidth: 300, borderRadius: 8, marginTop: 8 }} />
-                        ))}
-                        <p style={{ color: 'var(--text-secondary)', marginTop: 16 }}>🎮 Get ready to play!</p>
+
+                        {/* Discord button for admin */}
+                        {isAdmin && (
+                            <div style={{ textAlign: 'center', marginTop: 20 }}>
+                                <button
+                                    className="btn btn-primary"
+                                    onClick={handleBroadcast}
+                                    disabled={broadcasting}
+                                    style={{ fontSize: 16, padding: '12px 32px' }}
+                                >
+                                    {broadcasting ? '⏳ Sending...' : '📢 Send to Discord'}
+                                </button>
+                            </div>
+                        )}
+
+                        {!isAdmin && (
+                            <p style={{ color: 'var(--text-secondary)', marginTop: 16, textAlign: 'center' }}>🎮 Get ready to play!</p>
+                        )}
                     </div>
                 )}
             </div>

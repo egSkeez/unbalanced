@@ -335,7 +335,7 @@ export default function MixerPage() {
         {veto?.initialized && !veto.complete && veto.remaining && veto.remaining.length > 0 && (
           <div className="card" style={{ marginBottom: 32 }}>
             <div className="card-header">
-              {(veto.protected?.length || 0) < 2 ? '🛡️ PROTECT PHASE' : '❌ BAN PHASE'} — {veto.turn_team}&apos;s Turn
+              {(veto.protected?.length || 0) < 2 ? '🗺️ PICK PHASE' : '❌ BAN PHASE'} — {veto.turn_team}&apos;s Turn
             </div>
             <div className="grid-7">
               {constants.map_pool.map(m => {
@@ -352,7 +352,7 @@ export default function MixerPage() {
                     <img src={constants.map_logos[m]} alt={m} />
                     <div className="map-card-name">{m}</div>
                     {isBanned && <div className="banned-overlay">BANNED</div>}
-                    {isProtected && <div style={{ position: 'absolute', top: 4, right: 4, fontSize: 18 }}>🛡️</div>}
+                    {isProtected && <div style={{ position: 'absolute', top: 4, right: 4, fontSize: 14, fontWeight: 700, color: 'var(--neon-green)' }}>MAP {(veto.protected?.indexOf(m) ?? 0) + 1}</div>}
                   </div>
                 );
               })}
@@ -386,7 +386,6 @@ export default function MixerPage() {
             <div className="lobby-box-password">🔑 Password: kimkim</div>
             <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
               <a href={lobbyLink} target="_blank" rel="noopener noreferrer" className="btn btn-primary">JOIN SERVER</a>
-              <button className="btn" onClick={handleBroadcast}>📢 Discord</button>
             </div>
           </div>
         ) : (
