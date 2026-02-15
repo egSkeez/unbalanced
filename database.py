@@ -52,8 +52,11 @@ else:
 async_session = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 async def init_async_db():
+    from migrations import run_async_migrations
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    # Run custom migrations to add columns if missing (Base.metadata.create_all doesn't do ALTERs)
+    await run_async_migrations(engine)
 
 # --- DATABASE INITIALIZATION ---
 def init_db():
