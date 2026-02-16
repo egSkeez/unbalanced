@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Query, Header, Depends, status
+from fastapi import FastAPI, HTTPException, Query, Header, Depends, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +13,15 @@ import sqlite3
 import os
 import requests
 import datetime
+import httpx
+import uuid as uuid_mod
+
+# Supabase Storage config (for image uploads)
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+SUPABASE_BUCKET = "prize-images"
+ALLOWED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
+MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5 MB
 
 from auth import (
     init_user_accounts, create_access_token, get_current_user, get_current_user_optional,
@@ -45,7 +54,8 @@ from match_stats_db import (
 )
 from logic import get_best_combinations, pick_captains, cycle_new_captain
 from cybershoke import (
-    create_cybershoke_lobby_api, set_lobby_link, get_lobby_link, clear_lobby_link
+    create_cybershoke_lobby_api, set_lobby_link, get_lobby_link, clear_lobby_link,
+    get_lobby_match_result,
 )
 from discord_bot import send_full_match_info, send_lobby_to_discord
 from constants import TEAM_NAMES, MAP_POOL, MAP_LOGOS, SKEEZ_TITLES, PLAYERS_INIT
@@ -207,6 +217,9 @@ class ReportMatchRequest(BaseModel):
 
 class TournamentLobbyRequest(BaseModel):
     admin_name: str = "Skeez"
+
+class SubmitLobbyRequest(BaseModel):
+    lobby_url: str  # e.g. "https://cybershoke.net/match/3387473"
 
 # ──────────────────────────────────────────────
 # PING ENDPOINT
@@ -1507,6 +1520,55 @@ async def search_skins(q: str = Query(..., min_length=2)):
 
 
 # ──────────────────────────────────────────────
+# IMAGE UPLOAD (Supabase Storage)
+# ──────────────────────────────────────────────
+
+@app.post("/api/upload/image")
+async def upload_image(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """Upload an image to Supabase Storage. Returns the public URL."""
+    if current_user.role != "admin":
+        raise HTTPException(403, "Only admins can upload images")
+
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        raise HTTPException(500, "Supabase storage not configured")
+
+    # Validate content type
+    if file.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(400, f"Invalid file type: {file.content_type}. Allowed: png, jpg, webp, gif")
+
+    # Read file and validate size
+    contents = await file.read()
+    if len(contents) > MAX_IMAGE_SIZE:
+        raise HTTPException(400, f"File too large. Maximum: 5MB")
+
+    # Generate unique filename
+    ext = file.filename.rsplit('.', 1)[-1].lower() if file.filename and '.' in file.filename else 'png'
+    if ext not in ('png', 'jpg', 'jpeg', 'webp', 'gif'):
+        ext = 'png'
+    storage_filename = f"{uuid_mod.uuid4().hex}.{ext}"
+
+    # Upload to Supabase Storage via REST API
+    upload_url = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/{storage_filename}"
+    headers = {
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+        "Content-Type": file.content_type or "application/octet-stream",
+    }
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.put(upload_url, content=contents, headers=headers, timeout=30.0)
+
+    if resp.status_code not in (200, 201):
+        raise HTTPException(502, f"Upload failed: {resp.text}")
+
+    # Construct public URL
+    public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{storage_filename}"
+    return {"url": public_url, "filename": storage_filename}
+
+
+# ──────────────────────────────────────────────
 # TOURNAMENTS
 # ──────────────────────────────────────────────
 
@@ -1830,6 +1892,137 @@ async def create_tournament_lobby(
     await db.commit()
 
     return {"status": "ok", "lobby_url": link, "match_id": str(lobby_id)}
+
+
+@app.post("/api/matches/{match_id}/submit-lobby")
+async def submit_match_lobby(
+    match_id: str,
+    req: SubmitLobbyRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Participant submits a finished Cybershoke lobby URL.
+    The backend fetches the lobby result from the Cybershoke API and auto-determines the winner.
+
+    Only a participant in this match (or an admin) can submit.
+    """
+    import re as _re
+
+    result = await db.execute(select(TournamentMatch).filter(TournamentMatch.id == match_id))
+    match = result.scalars().first()
+    if not match:
+        raise HTTPException(404, "Match not found")
+    if match.winner_id:
+        raise HTTPException(400, "Match already has a result")
+    if not match.player1_id or not match.player2_id:
+        raise HTTPException(400, "Both players must be determined before submitting a result")
+
+    # Auth: must be a participant in this match OR an admin
+    is_participant = current_user.id in (match.player1_id, match.player2_id)
+    if not is_participant and current_user.role != "admin":
+        raise HTTPException(403, "Only match participants or admins can submit lobby results")
+
+    # Extract lobby_id from URL (e.g. "https://cybershoke.net/match/3387473")
+    m = _re.search(r'/match/(\d+)', req.lobby_url)
+    if not m:
+        raise HTTPException(400, "Invalid Cybershoke lobby URL. Expected format: https://cybershoke.net/match/<id>")
+    lobby_id = m.group(1)
+
+    # Fetch result from Cybershoke API
+    lobby_result = get_lobby_match_result(lobby_id)
+    if not lobby_result:
+        raise HTTPException(502, "Could not fetch lobby data from Cybershoke. The lobby may not exist or has expired.")
+    if not lobby_result.get("finished"):
+        raise HTTPException(400, "This match hasn't finished yet. Wait for the match to end before submitting.")
+    if lobby_result.get("winning_team") is None:
+        raise HTTPException(400, "Match ended in a draw or has no score. An admin will need to resolve this manually.")
+
+    # Match Cybershoke players to tournament players.
+    # Strategy: each team has players. We look up display_names of player1 and player2,
+    # then check which team contains a player whose Cybershoke name matches.
+    # For 1v1, each team has exactly 1 player.
+    result_p1 = await db.execute(select(User).filter(User.id == match.player1_id))
+    result_p2 = await db.execute(select(User).filter(User.id == match.player2_id))
+    user_p1 = result_p1.scalars().first()
+    user_p2 = result_p2.scalars().first()
+
+    if not user_p1 or not user_p2:
+        raise HTTPException(500, "Could not load player data")
+
+    # Build a name-to-team mapping from the lobby
+    lobby_players = lobby_result.get("players", [])
+    winning_team = lobby_result["winning_team"]
+
+    # Try to match each tournament player to a lobby player by name (case-insensitive)
+    def find_team_for_user(user: User) -> int | None:
+        names_to_try = set()
+        if user.display_name:
+            names_to_try.add(user.display_name.lower())
+        if user.username:
+            names_to_try.add(user.username.lower())
+
+        for lp in lobby_players:
+            if lp["name"].lower() in names_to_try:
+                return lp["team"]
+        return None
+
+    p1_team = find_team_for_user(user_p1)
+    p2_team = find_team_for_user(user_p2)
+
+    # Determine winner
+    winner_id = None
+    if p1_team == winning_team:
+        winner_id = match.player1_id
+    elif p2_team == winning_team:
+        winner_id = match.player2_id
+    elif p1_team is not None and p2_team is not None:
+        # Both found but neither on winning team? Shouldn't happen, but fallback
+        raise HTTPException(400, "Could not determine winner from lobby data. Player team assignments unclear.")
+    else:
+        # Could not match players by name — fall back to positional:
+        # In a 1v1, if only 2 players in the lobby, team_2 = player slot 0, team_3 = player slot 1.
+        # We assume player1 was team_2, player2 was team_3 (order they joined).
+        # This is a best-effort fallback.
+        if len(lobby_players) == 2:
+            # Sort by team to get deterministic assignment
+            sorted_lp = sorted(lobby_players, key=lambda p: p["team"])
+            if winning_team == sorted_lp[0]["team"]:
+                winner_id = match.player1_id
+            else:
+                winner_id = match.player2_id
+        else:
+            raise HTTPException(
+                400,
+                f"Could not match tournament players to Cybershoke lobby players. "
+                f"Lobby players: {[p['name'] for p in lobby_players]}. "
+                f"Expected: {user_p1.display_name}, {user_p2.display_name}. "
+                f"An admin can report this match manually."
+            )
+
+    # Record the result
+    score_str = lobby_result["score"]
+    try:
+        await report_match(match_id, winner_id, score_str, db)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    # Also save the lobby URL on the match
+    result = await db.execute(select(TournamentMatch).filter(TournamentMatch.id == match_id))
+    updated_match = result.scalars().first()
+    if updated_match:
+        updated_match.cybershoke_lobby_url = req.lobby_url
+        updated_match.cybershoke_match_id = lobby_id
+        await db.commit()
+
+    winner_name = user_p1.display_name if winner_id == match.player1_id else user_p2.display_name
+    return {
+        "status": "ok",
+        "message": f"{winner_name} wins! ({score_str})",
+        "winner_id": winner_id,
+        "score": score_str,
+        "map": lobby_result.get("map_name"),
+    }
 
 
 @app.post("/api/matches/{match_id}/advance-winner")

@@ -6,7 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import {
     getTournament, getTournamentBracket, joinTournament, leaveTournament,
     createTournamentLobby, reportMatch, startTournament, searchSkins,
-    updateTournament,
+    updateTournament, submitMatchLobby,
 } from '@/app/lib/api';
 
 // ──────────────────────────────────────────────
@@ -180,10 +180,15 @@ export default function TournamentDetailPage() {
     const [prizeImgDraft, setPrizeImgDraft] = useState('');
     const [savingDesc, setSavingDesc] = useState(false);
 
-    // Score dialog state
+    // Score dialog state (admin fallback)
     const [scoreDialog, setScoreDialog] = useState<{ matchId: string; player1: PlayerInfo; player2: PlayerInfo } | null>(null);
     const [scoreInput, setScoreInput] = useState('');
     const [scoreWinner, setScoreWinner] = useState('');
+
+    // Lobby submission dialog state (participants)
+    const [lobbyDialog, setLobbyDialog] = useState<{ matchId: string } | null>(null);
+    const [lobbyUrlInput, setLobbyUrlInput] = useState('');
+    const [lobbySubmitting, setLobbySubmitting] = useState(false);
 
     const isAdmin = user?.role === 'admin';
     const isCreator = !!(user && tournament?.created_by && user.id === tournament.created_by);
@@ -290,6 +295,27 @@ export default function TournamentDetailPage() {
             setError(e instanceof Error ? e.message : 'Failed to report match');
         } finally {
             setActionLoading(null);
+        }
+    };
+
+    const openLobbyDialog = (match: MatchData) => {
+        setLobbyDialog({ matchId: match.id });
+        setLobbyUrlInput('');
+        setError('');
+    };
+
+    const handleSubmitLobby = async () => {
+        if (!token || !lobbyDialog || !lobbyUrlInput.trim()) return;
+        setLobbySubmitting(true);
+        setError('');
+        try {
+            await submitMatchLobby(lobbyDialog.matchId, lobbyUrlInput.trim(), token);
+            setLobbyDialog(null);
+            await loadData();
+        } catch (e: unknown) {
+            setError(e instanceof Error ? e.message : 'Failed to submit lobby result');
+        } finally {
+            setLobbySubmitting(false);
         }
     };
 
@@ -792,17 +818,23 @@ export default function TournamentDetailPage() {
                         <RoundRobinView
                             bracket={bracket}
                             isAdmin={isAdmin}
+                            canEdit={canEdit}
+                            currentUserId={user?.id}
                             actionLoading={actionLoading}
                             onEditMatch={openScoreDialog}
                             onCreateLobby={handleCreateLobby}
+                            onSubmitLobby={openLobbyDialog}
                         />
                     ) : (
                         <BracketView
                             bracket={bracket}
                             isAdmin={isAdmin}
+                            canEdit={canEdit}
+                            currentUserId={user?.id}
                             actionLoading={actionLoading}
                             onCreateLobby={handleCreateLobby}
                             onEditMatch={openScoreDialog}
+                            onSubmitLobby={openLobbyDialog}
                         />
                     )}
                 </>
@@ -871,6 +903,64 @@ export default function TournamentDetailPage() {
                     </div>
                 </div>
             )}
+
+            {/* ═══════ LOBBY SUBMISSION DIALOG ═══════ */}
+            {lobbyDialog && (
+                <div style={{
+                    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }} onClick={() => setLobbyDialog(null)}>
+                    <div
+                        style={{
+                            background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 16,
+                            padding: 28, width: 440, maxWidth: '90vw',
+                        }}
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <h3 style={{ margin: '0 0 8px', fontWeight: 700 }}>Submit Match Result</h3>
+                        <p style={{ margin: '0 0 20px', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                            Paste the Cybershoke lobby URL from your finished match. The score and winner will be extracted automatically.
+                        </p>
+
+                        <div style={{ marginBottom: 20 }}>
+                            <label style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
+                                Lobby URL
+                            </label>
+                            <input
+                                value={lobbyUrlInput}
+                                onChange={e => setLobbyUrlInput(e.target.value)}
+                                placeholder="https://cybershoke.net/match/12345"
+                                style={{
+                                    background: '#111', border: '1px solid var(--border)', borderRadius: 8,
+                                    padding: '10px 14px', color: '#fff', width: '100%', fontSize: 14,
+                                }}
+                                autoFocus
+                            />
+                        </div>
+
+                        {error && (
+                            <div style={{
+                                padding: '10px 14px', marginBottom: 16, borderRadius: 8,
+                                background: 'rgba(255,51,51,0.15)', border: '1px solid rgba(255,51,51,0.3)',
+                                color: 'var(--red)', fontSize: 13,
+                            }}>
+                                {error}
+                            </div>
+                        )}
+
+                        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                            <button className="btn btn-sm" onClick={() => setLobbyDialog(null)}>Cancel</button>
+                            <button
+                                className="btn btn-primary btn-sm"
+                                onClick={handleSubmitLobby}
+                                disabled={!lobbyUrlInput.trim() || lobbySubmitting}
+                            >
+                                {lobbySubmitting ? 'Submitting...' : 'Submit'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -899,11 +989,12 @@ function InfoCard({ label, value, color }: { label: string; value: string; color
 // ──────────────────────────────────────────────
 
 function RoundRobinView({
-    bracket, isAdmin, actionLoading, onEditMatch, onCreateLobby,
+    bracket, isAdmin, canEdit, currentUserId, actionLoading, onEditMatch, onCreateLobby, onSubmitLobby,
 }: {
-    bracket: BracketData; isAdmin: boolean; actionLoading: string | null;
+    bracket: BracketData; isAdmin: boolean; canEdit: boolean; currentUserId?: string; actionLoading: string | null;
     onEditMatch: (match: MatchData) => void;
     onCreateLobby?: (id: string) => void;
+    onSubmitLobby: (match: MatchData) => void;
 }) {
     const standings = bracket.standings || [];
     const playoffRounds = bracket.playoff_rounds || [];
@@ -970,9 +1061,12 @@ function RoundRobinView({
                     <BracketView
                         bracket={playoffBracket}
                         isAdmin={isAdmin}
+                        canEdit={canEdit}
+                        currentUserId={currentUserId}
                         actionLoading={actionLoading}
                         onCreateLobby={onCreateLobby || (() => { })}
                         onEditMatch={onEditMatch}
+                        onSubmitLobby={onSubmitLobby}
                     />
                 </div>
             )}
@@ -984,7 +1078,7 @@ function RoundRobinView({
                     <h4 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8 }}>{round.name}</h4>
                     <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
                         {round.matches.map(match => (
-                            <RoundRobinMatchCard key={match.id} match={match} isAdmin={isAdmin} actionLoading={actionLoading} onEditMatch={onEditMatch} onCreateLobby={onCreateLobby} />
+                            <RoundRobinMatchCard key={match.id} match={match} isAdmin={isAdmin} canEdit={canEdit} currentUserId={currentUserId} actionLoading={actionLoading} onEditMatch={onEditMatch} onCreateLobby={onCreateLobby} onSubmitLobby={onSubmitLobby} />
                         ))}
                     </div>
                 </div>
@@ -997,13 +1091,15 @@ const thStyle: React.CSSProperties = { padding: '10px 12px', textAlign: 'center'
 const tdStyle: React.CSSProperties = { padding: '10px 12px', textAlign: 'center' };
 
 function RoundRobinMatchCard({
-    match, isAdmin, actionLoading, onEditMatch, onCreateLobby,
+    match, canEdit, currentUserId, actionLoading, onEditMatch, onCreateLobby, onSubmitLobby,
 }: {
-    match: MatchData; isAdmin: boolean; actionLoading: string | null;
+    match: MatchData; isAdmin?: boolean; canEdit: boolean; currentUserId?: string; actionLoading: string | null;
     onEditMatch: (match: MatchData) => void;
     onCreateLobby?: (id: string) => void;
+    onSubmitLobby: (match: MatchData) => void;
 }) {
     const isActive = match.player1 && match.player2 && !match.winner;
+    const isMatchParticipant = currentUserId && (match.player1?.id === currentUserId || match.player2?.id === currentUserId);
     const borderColor = match.winner ? 'rgba(57,255,20,0.3)' : isActive ? 'rgba(255,140,0,0.4)' : 'var(--border)';
 
     return (
@@ -1052,8 +1148,22 @@ function RoundRobinMatchCard({
                 </a>
             )}
 
+            {/* Participant: Submit Result */}
+            {isMatchParticipant && isActive && (
+                <button
+                    className="btn btn-sm"
+                    onClick={() => onSubmitLobby(match)}
+                    style={{
+                        fontSize: 10, padding: '4px 10px', flexShrink: 0,
+                        background: 'rgba(57,255,20,0.1)', color: 'var(--neon-green)', border: '1px solid rgba(57,255,20,0.3)',
+                    }}
+                >
+                    Submit Result
+                </button>
+            )}
+
             {/* Admin Actions */}
-            {isAdmin && isActive && (
+            {canEdit && isActive && !isMatchParticipant && (
                 <div style={{ display: 'flex', gap: 6, marginLeft: 4 }}>
                     {onCreateLobby && !match.cybershoke_lobby_url && !match.winner && (
                         <button
@@ -1073,7 +1183,8 @@ function RoundRobinMatchCard({
                         <button
                             className="btn btn-sm"
                             onClick={() => onEditMatch(match)}
-                            style={{ fontSize: 11, padding: '4px 10px', flexShrink: 0 }}
+                            style={{ fontSize: 11, padding: '4px 10px', flexShrink: 0, opacity: 0.7 }}
+                            title="Admin override"
                         >
                             Edit
                         </button>
@@ -1090,10 +1201,10 @@ function RoundRobinMatchCard({
 // ──────────────────────────────────────────────
 
 function BracketView({
-    bracket, isAdmin, actionLoading, onCreateLobby, onEditMatch,
+    bracket, isAdmin, canEdit, currentUserId, actionLoading, onCreateLobby, onEditMatch, onSubmitLobby,
 }: {
-    bracket: BracketData; isAdmin: boolean; actionLoading: string | null;
-    onCreateLobby: (id: string) => void; onEditMatch: (match: MatchData) => void;
+    bracket: BracketData; isAdmin: boolean; canEdit: boolean; currentUserId?: string; actionLoading: string | null;
+    onCreateLobby: (id: string) => void; onEditMatch: (match: MatchData) => void; onSubmitLobby: (match: MatchData) => void;
 }) {
     return (
         <div>
@@ -1101,8 +1212,8 @@ function BracketView({
             <div style={{ display: 'flex', gap: 0, overflowX: 'auto', paddingBottom: 16 }}>
                 {bracket.rounds.map((round) => (
                     <BracketRound key={round.round_number} round={round} totalRounds={bracket.total_rounds}
-                        isAdmin={isAdmin} actionLoading={actionLoading}
-                        onCreateLobby={onCreateLobby} onEditMatch={onEditMatch}
+                        isAdmin={isAdmin} canEdit={canEdit} currentUserId={currentUserId} actionLoading={actionLoading}
+                        onCreateLobby={onCreateLobby} onEditMatch={onEditMatch} onSubmitLobby={onSubmitLobby}
                     />
                 ))}
             </div>
@@ -1111,10 +1222,10 @@ function BracketView({
 }
 
 function BracketRound({
-    round, totalRounds, isAdmin, actionLoading, onCreateLobby, onEditMatch,
+    round, totalRounds, isAdmin, canEdit, currentUserId, actionLoading, onCreateLobby, onEditMatch, onSubmitLobby,
 }: {
-    round: RoundData; totalRounds: number; isAdmin: boolean; actionLoading: string | null;
-    onCreateLobby: (id: string) => void; onEditMatch: (match: MatchData) => void;
+    round: RoundData; totalRounds: number; isAdmin: boolean; canEdit: boolean; currentUserId?: string; actionLoading: string | null;
+    onCreateLobby: (id: string) => void; onEditMatch: (match: MatchData) => void; onSubmitLobby: (match: MatchData) => void;
 }) {
     const matchHeight = 200;
     const roundSpacing = Math.pow(2, round.round_number - 1);
@@ -1134,9 +1245,9 @@ function BracketRound({
                 flex: 1, paddingTop: topPadding, gap: (roundSpacing - 1) * matchHeight,
             }}>
                 {round.matches.map((match) => (
-                    <MatchCard key={match.id} match={match} isAdmin={isAdmin}
-                        actionLoading={actionLoading} onCreateLobby={onCreateLobby}
-                        onEditMatch={onEditMatch} isFinal={round.round_number === totalRounds}
+                    <MatchCard key={match.id} match={match} isAdmin={isAdmin} canEdit={canEdit}
+                        currentUserId={currentUserId} actionLoading={actionLoading} onCreateLobby={onCreateLobby}
+                        onEditMatch={onEditMatch} onSubmitLobby={onSubmitLobby} isFinal={round.round_number === totalRounds}
                     />
                 ))}
             </div>
@@ -1146,13 +1257,14 @@ function BracketRound({
 
 
 function MatchCard({
-    match, isAdmin, actionLoading, onCreateLobby, onEditMatch, isFinal,
+    match, canEdit, currentUserId, actionLoading, onCreateLobby, onEditMatch, onSubmitLobby, isFinal,
 }: {
-    match: MatchData; isAdmin: boolean; actionLoading: string | null;
-    onCreateLobby: (id: string) => void; onEditMatch: (match: MatchData) => void;
+    match: MatchData; isAdmin?: boolean; canEdit: boolean; currentUserId?: string; actionLoading: string | null;
+    onCreateLobby: (id: string) => void; onEditMatch: (match: MatchData) => void; onSubmitLobby: (match: MatchData) => void;
     isFinal: boolean;
 }) {
     const isActive = match.player1 && match.player2 && !match.winner;
+    const isMatchParticipant = currentUserId && (match.player1?.id === currentUserId || match.player2?.id === currentUserId);
     const isBye = (match.player1 && !match.player2) || (!match.player1 && match.player2);
     const isLoading = actionLoading === match.id;
     const borderColor = match.winner ? 'rgba(57,255,20,0.3)' : isActive ? 'rgba(255,140,0,0.4)' : 'var(--border)';
@@ -1184,8 +1296,19 @@ function MatchCard({
                 </a>
             )}
 
-            {/* Admin: Edit Match (opens dialog) */}
-            {isAdmin && isActive && !isLoading && (
+            {/* Participant: Submit Result */}
+            {isMatchParticipant && isActive && !isLoading && (
+                <button className="btn btn-sm" onClick={() => onSubmitLobby(match)} style={{
+                    width: '100%', marginTop: 8, fontSize: 11, padding: '6px 8px',
+                    background: 'rgba(57,255,20,0.1)', color: 'var(--neon-green)',
+                    border: '1px solid rgba(57,255,20,0.3)',
+                }}>
+                    Submit Result
+                </button>
+            )}
+
+            {/* Admin: fallback controls */}
+            {canEdit && isActive && !isMatchParticipant && !isLoading && (
                 <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
                     {!match.cybershoke_lobby_url && (
                         <button className="btn btn-sm" onClick={() => onCreateLobby(match.id)} style={{
@@ -1197,10 +1320,12 @@ function MatchCard({
                         </button>
                     )}
                     <button className="btn btn-sm" onClick={() => onEditMatch(match)} style={{
-                        flex: 1, fontSize: 11, padding: '5px 8px',
+                        flex: 1, fontSize: 11, padding: '5px 8px', opacity: 0.7,
                         background: 'rgba(255,140,0,0.15)', color: 'var(--orange)',
                         border: '1px solid rgba(255,140,0,0.3)',
-                    }}>
+                    }}
+                        title="Admin override"
+                    >
                         Edit Match
                     </button>
                 </div>

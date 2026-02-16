@@ -154,9 +154,27 @@ export const advanceWinner = (matchId: string, winnerId: string, token: string) 
     fetchApi(`/api/matches/${matchId}/advance-winner`, { method: 'POST', body: JSON.stringify({ winner_id: winnerId }), headers: { 'Authorization': `Bearer ${token}` } });
 export const reportMatch = (matchId: string, winnerId: string, score: string | null, token: string) =>
     fetchApi(`/api/matches/${matchId}/report`, { method: 'POST', body: JSON.stringify({ winner_id: winnerId, score }), headers: { 'Authorization': `Bearer ${token}` } });
+export const submitMatchLobby = (matchId: string, lobbyUrl: string, token: string) =>
+    fetchApi(`/api/matches/${matchId}/submit-lobby`, { method: 'POST', body: JSON.stringify({ lobby_url: lobbyUrl }), headers: { 'Authorization': `Bearer ${token}` } });
 export const deleteTournament = (id: string, token: string) =>
     fetchApi(`/api/tournaments/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
 
 // CS2 Skin Search
 export const searchSkins = (query: string) =>
     fetchApi(`/api/skins/search?q=${encodeURIComponent(query)}`);
+
+// Image Upload (Supabase Storage)
+export const uploadImage = async (file: File, token: string): Promise<{ url: string; filename: string }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch(`${API_BASE}/api/upload/image`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData,
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(err.detail || res.statusText);
+    }
+    return res.json();
+};

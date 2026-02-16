@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
-import { getTournaments, joinTournament, leaveTournament, createTournament, deleteTournament, searchSkins } from '@/app/lib/api';
+import { getTournaments, joinTournament, leaveTournament, createTournament, deleteTournament, searchSkins, uploadImage } from '@/app/lib/api';
 
 interface TournamentData {
     id: string;
@@ -43,6 +43,11 @@ export default function TournamentsPage() {
     const [showSkinDropdown, setShowSkinDropdown] = useState(false);
     const skinTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
+
+    // Image upload state
+    const [prizeMode, setPrizeMode] = useState<'skin' | 'upload'>('skin');
+    const [uploading, setUploading] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     const loadTournaments = async () => {
         try {

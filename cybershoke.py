@@ -126,6 +126,87 @@ def clear_lobby_link():
     finally:
         conn.close()
 
+def get_lobby_match_result(lobby_id):
+    """
+    Fetches lobby info and determines the match result for tournament use.
+    Returns a dict with:
+        - score: "X - Y" string
+        - map_name: str
+        - winning_team: 2 or 3 (the team number with the higher score)
+        - players: list of {name, team, kills, deaths, assists, headshots}
+        - finished: bool (whether the match has concluded)
+    Returns None on failure.
+    """
+    url = "https://api.cybershoke.net/api/v1/custom-matches/lobbys/info"
+    try:
+        payload = {"id_lobby": lobby_id}
+        resp = requests.post(url, headers=get_headers("Skeez"), json=payload, timeout=10)
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        if data.get("result") != "success":
+            return None
+
+        lobby_data = data.get("data", {})
+
+        # Score
+        match_stats_base = lobby_data.get("match_stats", {}).get("base", {})
+        score_t2 = int(match_stats_base.get("team_2", {}).get("score", 0))
+        score_t3 = int(match_stats_base.get("team_3", {}).get("score", 0))
+
+        # Lobby status
+        status = lobby_data.get("status", "")
+        finished = status in ("ended", "finished", "completed") or (score_t2 + score_t3) > 0
+
+        # Determine winning team
+        if score_t2 > score_t3:
+            winning_team = 2
+        elif score_t3 > score_t2:
+            winning_team = 3
+        else:
+            winning_team = None  # draw or not finished
+
+        # Map
+        match_settings = lobby_data.get("match_settings", {})
+        map_name = match_settings.get("map_name", "Unknown")
+
+        # Players with team info
+        players_dict = lobby_data.get("players", {})
+        players = []
+        for pid, p_data in players_dict.items():
+            nick = p_data.get("name")
+            # Team is stored in the slot or team field
+            # Cybershoke uses "slot" where slots 0-4 = team_2, slots 5-9 = team_3
+            slot = p_data.get("slot", -1)
+            if isinstance(slot, str):
+                slot = int(slot) if slot.isdigit() else -1
+            team = 2 if slot < 5 else 3
+
+            p_stats = p_data.get("match_stats", {}).get("live", {})
+            if nick:
+                players.append({
+                    "name": nick,
+                    "team": team,
+                    "kills": int(p_stats.get("kills", 0)),
+                    "deaths": int(p_stats.get("deaths", 0)),
+                    "assists": int(p_stats.get("assists", 0)),
+                    "headshots": int(p_stats.get("headshots", 0)),
+                })
+
+        return {
+            "score": f"{score_t2} - {score_t3}",
+            "score_t2": score_t2,
+            "score_t3": score_t3,
+            "map_name": map_name,
+            "winning_team": winning_team,
+            "players": players,
+            "finished": finished,
+        }
+    except Exception as e:
+        print(f"Lobby match result error: {e}")
+        return None
+
+
 def get_lobby_player_stats(lobby_id):
     """
     Fetches the Cybershoke lobby info and returns detailed stats.
