@@ -95,32 +95,30 @@ def init_db():
                      (key TEXT PRIMARY KEY, value TEXT)'''))
 
     # Upsert Logic
-    # Using raw connection for standard execution if needed, but text() works fine
     # Postgres uses ON CONFLICT, SQLite uses INSERT OR IGNORE / REPLACE
     
-    # We will just do a check for players or try/except
     with sync_engine.connect() as conn:
         # Check if players empty
         res = conn.execute(text("SELECT COUNT(*) FROM players")).scalar()
         if res == 0:
-             # UPSERT Logic: Add new players
+             # Seeds players from PLAYERS_INIT (includes steamid if available)
             for name, d in PLAYERS_INIT.items():
+                steamid = d.get('steamid')
                 if is_postgres:
-                    # Postgres UPSERT
-                    sql = """INSERT INTO players (name, elo, aim, util, team_play, secret_word) 
-                             VALUES (:name, :elo, :aim, :util, :team, 'cs2pro')
+                    sql = """INSERT INTO players (name, elo, aim, util, team_play, secret_word, steamid) 
+                             VALUES (:name, :elo, :aim, :util, :team, 'cs2pro', :steamid)
                              ON CONFLICT (name) DO NOTHING"""
                 else:
-                    # SQLite UPSERT
-                    sql = """INSERT OR IGNORE INTO players (name, elo, aim, util, team_play, secret_word) 
-                             VALUES (:name, :elo, :aim, :util, :team, 'cs2pro')"""
+                    sql = """INSERT OR IGNORE INTO players (name, elo, aim, util, team_play, secret_word, steamid) 
+                             VALUES (:name, :elo, :aim, :util, :team, 'cs2pro', :steamid)"""
                 
-                conn.execute(text(sql), {"name": name, "elo": d['elo'], "aim": d['aim'], "util": d['util'], "team": d['team']})
+                conn.execute(text(sql), {"name": name, "elo": d['elo'], "aim": d['aim'], "util": d['util'], "team": d['team'], "steamid": steamid})
             conn.commit()
 
         # Update lower secret word
         conn.execute(text("UPDATE players SET secret_word = lower(name) WHERE secret_word IS NULL OR secret_word = ''"))
         conn.commit()
+
 
 # --- SETTINGS FUNCTIONS ---
 def get_roommates():

@@ -1,8 +1,9 @@
 # cybershoke.py
 import requests
-import sqlite3
 import json
 import re
+from database import sync_engine
+from sqlalchemy import text as sa_text
 
 # --- COOKIE REPOSITORY ---
 COOKIES = {
@@ -85,46 +86,38 @@ def init_cybershoke_db():
 # --- DB PERSISTENCE FUNCTIONS ---
 def set_lobby_link(link, match_id=None):
     """Saves the lobby link and optional match ID to the database."""
-    conn = sqlite3.connect('cs2_history.db')
     try:
-        if match_id:
-            conn.execute("UPDATE active_draft_state SET current_lobby=?, cybershoke_match_id=? WHERE id=1", (link, str(match_id)))
-        else:
-            conn.execute("UPDATE active_draft_state SET current_lobby=? WHERE id=1", (link,))
-        conn.commit()
+        with sync_engine.begin() as conn:
+            if match_id:
+                conn.execute(sa_text("UPDATE active_draft_state SET current_lobby=:link, cybershoke_match_id=:mid WHERE id=1"),
+                             {"link": link, "mid": str(match_id)})
+            else:
+                conn.execute(sa_text("UPDATE active_draft_state SET current_lobby=:link WHERE id=1"),
+                             {"link": link})
     except Exception as e:
         print(f"Error saving lobby link: {e}")
-    finally:
-        conn.close()
 
 def get_lobby_link():
     """Retrieves the active lobby link and match ID from the database."""
-    conn = sqlite3.connect('cs2_history.db')
-    c = conn.cursor()
     link = None
     cs_id = None
     try:
-        c.execute("SELECT current_lobby, cybershoke_match_id FROM active_draft_state WHERE id=1")
-        row = c.fetchone()
-        if row:
-            link = row[0]
-            cs_id = row[1]
+        with sync_engine.connect() as conn:
+            row = conn.execute(sa_text("SELECT current_lobby, cybershoke_match_id FROM active_draft_state WHERE id=1")).fetchone()
+            if row:
+                link = row[0]
+                cs_id = row[1]
     except:
         pass
-    finally:
-        conn.close()
     return link, cs_id
 
 def clear_lobby_link():
     """Removes the lobby link and match ID from the database."""
-    conn = sqlite3.connect('cs2_history.db')
     try:
-        conn.execute("UPDATE active_draft_state SET current_lobby=NULL, cybershoke_match_id=NULL WHERE id=1")
-        conn.commit()
+        with sync_engine.begin() as conn:
+            conn.execute(sa_text("UPDATE active_draft_state SET current_lobby=NULL, cybershoke_match_id=NULL WHERE id=1"))
     except:
         pass
-    finally:
-        conn.close()
 
 def get_lobby_match_result(lobby_id):
     """

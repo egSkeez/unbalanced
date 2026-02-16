@@ -65,6 +65,7 @@ from discord_bot import send_full_match_info, send_lobby_to_discord
 from constants import TEAM_NAMES, MAP_POOL, MAP_LOGOS, SKEEZ_TITLES, PLAYERS_INIT
 from season_logic import get_current_season_info, get_all_seasons
 from migrate_ratings import check_and_migrate
+from sync_to_production import sync_local_to_production
 
 # --- Lifespan for Async Init ---
 @asynccontextmanager
@@ -102,6 +103,8 @@ async def lifespan(app: FastAPI):
                 pass  # column already exists
     except Exception as e:
         print(f"Migration error: {e}")
+    # Sync local SQLite data to production PostgreSQL (only if production tables are empty)
+    sync_local_to_production()
     yield
     # Shutdown
     pass

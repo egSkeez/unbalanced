@@ -1,4 +1,3 @@
-import sqlite3
 import pandas as pd
 import json
 
@@ -63,26 +62,28 @@ def has_valid_multi_kills(mk_val):
     return False
 
 def migrate():
+    from database import sync_engine
+    from sqlalchemy import text as sa_text
+
     print("Starting Rating Migration...")
-    conn = sqlite3.connect('cs2_history.db')
-    c = conn.cursor()
     
-    # 1. Ensure column exists
-    try:
-        c.execute("ALTER TABLE player_match_stats ADD COLUMN rating REAL DEFAULT 0")
-        print("Added 'rating' column.")
-    except Exception as e:
-        print(f"Column check: {e}")
+    with sync_engine.begin() as conn:
+        # 1. Ensure column exists
+        try:
+            conn.execute(sa_text("ALTER TABLE player_match_stats ADD COLUMN rating REAL DEFAULT 0"))
+            print("Added 'rating' column.")
+        except Exception as e:
+            print(f"Column check: {e}")
         
-    # 2. Get Match Rounds
-    print("Fetching match details...")
-    c.execute("SELECT match_id, total_rounds FROM match_details")
-    matches = {row[0]: row[1] for row in c.fetchall()}
-    
-    # 3. Get Player Stats
-    print("Fetching player stats...")
-    c.execute("SELECT id, match_id, kills, deaths, multi_kills FROM player_match_stats")
-    rows = c.fetchall()
+    with sync_engine.connect() as conn:
+        # 2. Get Match Rounds
+        print("Fetching match details...")
+        rows_md = conn.execute(sa_text("SELECT match_id, total_rounds FROM match_details")).fetchall()
+        matches = {row[0]: row[1] for row in rows_md}
+        
+        # 3. Get Player Stats
+        print("Fetching player stats...")
+        rows = conn.execute(sa_text("SELECT id, match_id, kills, deaths, multi_kills FROM player_match_stats")).fetchall()
     
     print(f"Processing {len(rows)} stats entries...")
     updates = []
@@ -94,18 +95,17 @@ def migrate():
         
         if rounds > 0 and has_valid_multi_kills(mk):
             rating = calculate_hltv_rating_migration(k, d, mk, rounds)
-            updates.append((rating, pid))
+            updates.append({"rating": rating, "pid": pid})
         else:
-            # Set rating to NULL for matches without complete stats
-            updates.append((None, pid))
+            updates.append({"rating": None, "pid": pid})
             null_count += 1
             
     # 4. Batch Update
     print(f"Updating {len(updates)} rows ({null_count} set to NULL due to missing data)...")
-    c.executemany("UPDATE player_match_stats SET rating = ? WHERE id = ?", updates)
+    with sync_engine.begin() as conn:
+        for u in updates:
+            conn.execute(sa_text("UPDATE player_match_stats SET rating = :rating WHERE id = :pid"), u)
     
-    conn.commit()
-    conn.close()
     print("Migration Complete!")
 
 def check_and_migrate():
@@ -113,22 +113,19 @@ def check_and_migrate():
     Checks if ratings are uninitialized (all 0 or NULL) despite having matches.
     If so, runs migration automatically.
     """
+    from database import sync_engine
+    from sqlalchemy import text as sa_text
+
     try:
-        conn = sqlite3.connect('cs2_history.db')
-        c = conn.cursor()
-        
-        # Check if we have matches
-        c.execute("SELECT COUNT(*) FROM player_match_stats")
-        total_rows = c.fetchone()[0]
-        
-        if total_rows == 0:
-            conn.close()
-            return
+        with sync_engine.connect() as conn:
+            # Check if we have matches
+            total_rows = conn.execute(sa_text("SELECT COUNT(*) FROM player_match_stats")).scalar()
             
-        # Check if we have ANY valid ratings
-        c.execute("SELECT COUNT(*) FROM player_match_stats WHERE rating IS NOT NULL AND rating > 0")
-        valid_ratings = c.fetchone()[0]
-        conn.close()
+            if total_rows == 0:
+                return
+                
+            # Check if we have ANY valid ratings
+            valid_ratings = conn.execute(sa_text("SELECT COUNT(*) FROM player_match_stats WHERE rating IS NOT NULL AND rating > 0")).scalar()
         
         if valid_ratings == 0:
             print("⚠️ Detected uninitialized ratings. Running auto-migration...")
@@ -139,3 +136,4 @@ def check_and_migrate():
 
 if __name__ == "__main__":
     migrate()
+
