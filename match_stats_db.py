@@ -354,7 +354,7 @@ def get_player_aggregate_stats(player_name, start_date=None, end_date=None):
             {where_clause}
         '''
 
-        df = pd.read_sql_query(query, conn, params=params)
+        df = pd.read_sql_query(sa_text(query), conn, params=params)
 
     if not df.empty and df.iloc[0]['matches_played'] > 0:
         matches = df.iloc[0]['matches_played']
@@ -378,7 +378,7 @@ def get_recent_matches(limit=10):
             ORDER BY date_analyzed DESC
             LIMIT :lim
         '''
-        df = pd.read_sql_query(query, conn, params={"lim": limit})
+        df = pd.read_sql_query(sa_text(query), conn, params={"lim": limit})
     return df
 
 def get_season_stats_dump(start_date, end_date):
@@ -418,7 +418,7 @@ def get_season_stats_dump(start_date, end_date):
             HAVING COUNT(*) >= 5
         '''
 
-        df = pd.read_sql_query(query, conn, params={"start_date": start_date, "end_date": end_date})
+        df = pd.read_sql_query(sa_text(query), conn, params={"start_date": start_date, "end_date": end_date})
 
     if not df.empty:
         df['avg_kills'] = df['total_kills'] / df['matches_played']
@@ -497,7 +497,7 @@ def get_match_scoreboard(match_id):
             WHERE match_id = :mid
             ORDER BY score DESC
         '''
-        df = pd.read_sql_query(query, conn, params={"mid": str(match_id)})
+        df = pd.read_sql_query(sa_text(query), conn, params={"mid": str(match_id)})
     return df
 
 def get_player_weapon_stats(player_name, start_date=None, end_date=None):
@@ -537,7 +537,7 @@ def get_player_weapon_stats(player_name, start_date=None, end_date=None):
             {where_clause}
         '''
 
-        df = pd.read_sql_query(query, conn, params=params)
+        df = pd.read_sql_query(sa_text(query), conn, params=params)
 
     if df.empty:
         return []

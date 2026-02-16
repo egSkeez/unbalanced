@@ -435,7 +435,7 @@ async def my_matches(current_user: User = Depends(get_current_user), season: str
               AND date(md.date_analyzed) <= date(:end)
             ORDER BY md.date_analyzed DESC
         '''
-        df = pd.read_sql_query(q, conn, params={"name": name, "start": start, "end": end})
+        df = pd.read_sql_query(sa_text(q), conn, params={"name": name, "start": start, "end": end})
     return df_to_records(df)
 
 # ──────────────────────────────────────────────
@@ -1359,7 +1359,7 @@ def leaderboard(season: str = Query("Season 2 (Demos)")):
         ORDER BY rating DESC
     '''
     with sync_engine.connect() as conn:
-        df = pd.read_sql_query(query, conn, params=params)
+        df = pd.read_sql_query(sa_text(query), conn, params=params)
 
     if not df.empty:
         df['winrate'] = 0.0
@@ -1403,7 +1403,7 @@ def player_stats(name: str, season: str = Query("Season 2 (Demos)")):
         ORDER BY rating DESC
     '''
     with sync_engine.connect() as conn:
-        lb_df = pd.read_sql_query(lb_query, conn, params=params)
+        lb_df = pd.read_sql_query(sa_text(lb_query), conn, params=params)
 
     rank = None
     if not lb_df.empty:
@@ -1446,7 +1446,7 @@ def player_matches(name: str, season: str = Query("Season 2 (Demos)")):
         ORDER BY md.date_analyzed DESC
     '''
     with sync_engine.connect() as conn:
-        df = pd.read_sql_query(query, conn, params=params)
+        df = pd.read_sql_query(sa_text(query), conn, params=params)
     return df_to_records(df)
 
 # ──────────────────────────────────────────────
@@ -1515,7 +1515,7 @@ def season_trophies():
 def match_trophies(match_id: str):
     with sync_engine.connect() as conn:
         query = "SELECT * FROM player_match_stats WHERE match_id = :mid"
-        df = pd.read_sql_query(query, conn, params={"mid": match_id})
+        df = pd.read_sql_query(sa_text(query), conn, params={"mid": match_id})
 
     if df.empty:
         return {"trophies": [], "scoreboard": []}
