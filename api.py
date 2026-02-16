@@ -239,17 +239,24 @@ async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
     if len(req.password) < 4:
         raise HTTPException(400, "Password must be at least 4 characters")
     
-    # Check existing
+    # Check existing username
     result = await db.execute(select(User).filter(User.username == req.username.lower()))
     if result.scalars().first():
         raise HTTPException(409, "Username already exists")
     
+    # Check existing display name
+    display = req.display_name or req.username
+    result_display = await db.execute(select(User).filter(User.display_name == display))
+    if result_display.scalars().first():
+        raise HTTPException(409, f"Display name '{display}' is already taken")
+    
     hashed = hash_password(req.password)
+    display = req.display_name or req.username
     new_user = User(
         username=req.username.lower(),
         hashed_password=hashed,
         role="player",
-        display_name=req.display_name or req.username
+        display_name=display
     )
     db.add(new_user)
     try:
@@ -258,6 +265,18 @@ async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
     except Exception as e:
         await db.rollback()
         raise HTTPException(500, f"Database error: {str(e)}")
+    
+    # Auto-create player in the players table so they're available for drafting
+    try:
+        conn = sqlite3.connect('cs2_history.db')
+        conn.execute(
+            "INSERT OR IGNORE INTO players (name, elo, aim, util, team_play, secret_word) VALUES (?, 1200, 5, 5, 5, ?)",
+            (display, display.lower())
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[REGISTER] Could not auto-create player row: {e}")
         
     # Return directly matches UserOut schema
     return new_user
@@ -494,6 +513,247 @@ def delete_player(name: str):
         return {"status": "ok"}
     finally:
         conn.close()
+
+# ──────────────────────────────────────────────
+# ADMIN — USER MANAGEMENT
+# ──────────────────────────────────────────────
+
+@app.get("/api/admin/users")
+async def list_users(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """List all registered users (admin only)."""
+    if current_user.role != "admin":
+        raise HTTPException(403, "Admin only")
+    result = await db.execute(select(User).order_by(User.created_at.desc()))
+    users = result.scalars().all()
+    
+    # Also get player data to show which users have player entries
+    conn = sqlite3.connect('cs2_history.db')
+    try:
+        player_rows = conn.execute("SELECT name, aim, util, team_play, elo FROM players").fetchall()
+        player_map = {r[0]: {"aim": r[1], "util": r[2], "team_play": r[3], "elo": r[4]} for r in player_rows}
+    finally:
+        conn.close()
+    
+    return [
+        {
+            "id": u.id,
+            "username": u.username,
+            "display_name": u.display_name,
+            "role": u.role,
+            "is_active": u.is_active,
+            "created_at": u.created_at.isoformat() if u.created_at else None,
+            "last_login": u.last_login.isoformat() if u.last_login else None,
+            "has_player": u.display_name in player_map,
+            "player_stats": player_map.get(u.display_name),
+        }
+        for u in users
+    ]
+
+@app.put("/api/admin/users/{user_id}/role")
+async def update_user_role(user_id: str, role: str = Query(...), current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Update a user's role (admin only)."""
+    if current_user.role != "admin":
+        raise HTTPException(403, "Admin only")
+    if role not in ("admin", "player"):
+        raise HTTPException(400, "Role must be 'admin' or 'player'")
+    result = await db.execute(select(User).filter(User.id == user_id))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(404, "User not found")
+    user.role = role
+    await db.commit()
+    return {"status": "ok", "username": user.username, "role": role}
+
+@app.delete("/api/admin/users/{user_id}")
+async def delete_user(user_id: str, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Delete a registered user (admin only). Does NOT delete their player stats row."""
+    if current_user.role != "admin":
+        raise HTTPException(403, "Admin only")
+    if user_id == current_user.id:
+        raise HTTPException(400, "Cannot delete yourself")
+    result = await db.execute(select(User).filter(User.id == user_id))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(404, "User not found")
+    await db.delete(user)
+    await db.commit()
+    return {"status": "ok"}
+
+@app.post("/api/admin/users/create")
+async def admin_create_user(req: dict, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Admin creates a user account + player row."""
+    if current_user.role != "admin":
+        raise HTTPException(403, "Admin only")
+    username = (req.get("username") or "").strip().lower()
+    password = req.get("password", "")
+    display_name = (req.get("display_name") or username).strip()
+    role = req.get("role", "player")
+    aim = float(req.get("aim", 5))
+    util = float(req.get("util", 5))
+    team_play = float(req.get("team_play", 5))
+
+    if not username or len(username) < 2:
+        raise HTTPException(400, "Username must be at least 2 characters")
+    if len(password) < 4:
+        raise HTTPException(400, "Password must be at least 4 characters")
+    if role not in ("admin", "player"):
+        raise HTTPException(400, "Role must be 'admin' or 'player'")
+
+    # Check uniqueness
+    existing = await db.execute(select(User).filter(User.username == username))
+    if existing.scalars().first():
+        raise HTTPException(409, "Username already exists")
+    if display_name:
+        existing_dn = await db.execute(select(User).filter(User.display_name == display_name))
+        if existing_dn.scalars().first():
+            raise HTTPException(409, f"Display name '{display_name}' is already taken")
+
+    new_user = User(
+        username=username,
+        hashed_password=hash_password(password),
+        role=role,
+        display_name=display_name,
+    )
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
+
+    # Auto-create player row
+    try:
+        conn = sqlite3.connect('cs2_history.db')
+        conn.execute(
+            "INSERT OR IGNORE INTO players (name, elo, aim, util, team_play, secret_word) VALUES (?, 1200, ?, ?, ?, ?)",
+            (display_name, aim, util, team_play, display_name.lower())
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[ADMIN CREATE] Could not create player row: {e}")
+
+    return {"status": "ok", "id": new_user.id, "username": new_user.username, "display_name": new_user.display_name}
+
+
+@app.put("/api/admin/users/{user_id}")
+async def admin_update_user(user_id: str, req: dict, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Admin updates a user's profile fields."""
+    if current_user.role != "admin":
+        raise HTTPException(403, "Admin only")
+    result = await db.execute(select(User).filter(User.id == user_id))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    old_display = user.display_name
+
+    if "display_name" in req and req["display_name"]:
+        new_dn = req["display_name"].strip()
+        if new_dn != user.display_name:
+            dup = await db.execute(select(User).filter(User.display_name == new_dn))
+            if dup.scalars().first():
+                raise HTTPException(409, f"Display name '{new_dn}' is already taken")
+            user.display_name = new_dn
+    if "role" in req and req["role"] in ("admin", "player"):
+        user.role = req["role"]
+    if "is_active" in req:
+        user.is_active = bool(req["is_active"])
+    if "avatar_url" in req:
+        user.avatar_url = req["avatar_url"] or None
+
+    await db.commit()
+
+    # If display_name changed, rename the player row too
+    if user.display_name != old_display and old_display:
+        try:
+            conn = sqlite3.connect('cs2_history.db')
+            conn.execute("UPDATE players SET name = ?, secret_word = ? WHERE name = ?",
+                         (user.display_name, user.display_name.lower(), old_display))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"[ADMIN UPDATE] Could not rename player row: {e}")
+
+    return {"status": "ok"}
+
+
+@app.put("/api/admin/users/{user_id}/password")
+async def admin_reset_password(user_id: str, req: dict, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Admin resets a user's password."""
+    if current_user.role != "admin":
+        raise HTTPException(403, "Admin only")
+    password = req.get("password", "")
+    if len(password) < 4:
+        raise HTTPException(400, "Password must be at least 4 characters")
+    result = await db.execute(select(User).filter(User.id == user_id))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(404, "User not found")
+    user.hashed_password = hash_password(password)
+    await db.commit()
+    return {"status": "ok"}
+
+
+@app.put("/api/admin/users/{user_id}/scores")
+async def admin_update_scores(user_id: str, req: dict, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Admin updates a user's player skill scores (aim, util, team_play, elo)."""
+    if current_user.role != "admin":
+        raise HTTPException(403, "Admin only")
+    result = await db.execute(select(User).filter(User.id == user_id))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    display = user.display_name or user.username
+    conn = sqlite3.connect('cs2_history.db')
+    try:
+        # Ensure player row exists
+        cursor = conn.execute("SELECT 1 FROM players WHERE name = ?", (display,))
+        if not cursor.fetchone():
+            conn.execute(
+                "INSERT INTO players (name, elo, aim, util, team_play, secret_word) VALUES (?, 1200, 5, 5, 5, ?)",
+                (display, display.lower())
+            )
+
+        updates = []
+        params = []
+        for field in ("aim", "util", "team_play", "elo"):
+            if field in req and req[field] is not None:
+                updates.append(f"{field} = ?")
+                params.append(float(req[field]))
+        if updates:
+            params.append(display)
+            conn.execute(f"UPDATE players SET {', '.join(updates)} WHERE name = ?", params)
+            conn.commit()
+    finally:
+        conn.close()
+
+    return {"status": "ok"}
+
+
+@app.post("/api/admin/sync-players")
+async def sync_players(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Create player rows for any registered user who doesn't have one (admin only)."""
+    if current_user.role != "admin":
+        raise HTTPException(403, "Admin only")
+    result = await db.execute(select(User))
+    users = result.scalars().all()
+    
+    conn = sqlite3.connect('cs2_history.db')
+    synced = 0
+    try:
+        for u in users:
+            display = u.display_name or u.username
+            cursor = conn.execute("SELECT 1 FROM players WHERE name = ?", (display,))
+            if not cursor.fetchone():
+                conn.execute(
+                    "INSERT INTO players (name, elo, aim, util, team_play, secret_word) VALUES (?, 1200, 5, 5, 5, ?)",
+                    (display, display.lower())
+                )
+                synced += 1
+        conn.commit()
+    finally:
+        conn.close()
+    
+    return {"status": "ok", "synced": synced}
 
 # ──────────────────────────────────────────────
 # DRAFT

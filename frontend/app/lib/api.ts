@@ -125,6 +125,35 @@ export const getRoommates = () => fetchApi('/api/roommates');
 export const setRoommates = (groups: string[][]) =>
     fetchApi('/api/roommates', { method: 'POST', body: JSON.stringify({ groups }) });
 
+// Admin - Users
+export const getUsers = (token: string) =>
+    fetchApi('/api/admin/users', { headers: { 'Authorization': `Bearer ${token}` } });
+export const updateUserRole = (userId: string, role: string, token: string) =>
+    fetchApi(`/api/admin/users/${userId}/role?role=${encodeURIComponent(role)}`, { method: 'PUT', headers: { 'Authorization': `Bearer ${token}` } });
+export const deleteUser = (userId: string, token: string) =>
+    fetchApi(`/api/admin/users/${userId}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+export const syncPlayers = (token: string) =>
+    fetchApi('/api/admin/sync-players', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+
+export const adminCreateUser = (data: {
+    username: string; password: string; display_name?: string; role?: string;
+    aim?: number; util?: number; team_play?: number;
+}, token: string) =>
+    fetchApi('/api/admin/users/create', { method: 'POST', body: JSON.stringify(data), headers: { 'Authorization': `Bearer ${token}` } });
+
+export const adminUpdateUser = (userId: string, data: {
+    display_name?: string; role?: string; is_active?: boolean; avatar_url?: string;
+}, token: string) =>
+    fetchApi(`/api/admin/users/${userId}`, { method: 'PUT', body: JSON.stringify(data), headers: { 'Authorization': `Bearer ${token}` } });
+
+export const adminResetPassword = (userId: string, password: string, token: string) =>
+    fetchApi(`/api/admin/users/${userId}/password`, { method: 'PUT', body: JSON.stringify({ password }), headers: { 'Authorization': `Bearer ${token}` } });
+
+export const adminUpdateScores = (userId: string, data: {
+    aim?: number; util?: number; team_play?: number; elo?: number;
+}, token: string) =>
+    fetchApi(`/api/admin/users/${userId}/scores`, { method: 'PUT', body: JSON.stringify(data), headers: { 'Authorization': `Bearer ${token}` } });
+
 // Tournaments
 export const getTournaments = (status?: string) =>
     fetchApi(`/api/tournaments${status ? `?status=${status}` : ''}`);
