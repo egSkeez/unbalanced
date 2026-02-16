@@ -10,10 +10,13 @@ def _is_postgres():
 def init_match_stats_tables():
     """
     Creates tables for storing detailed match statistics from demo files.
+    IMPORTANT: On PostgreSQL, each ALTER TABLE migration MUST run in its own
+    transaction. If an ALTER fails (e.g. column already exists), PG aborts
+    the entire transaction, causing all subsequent statements to fail.
     """
     is_pg = _is_postgres()
-    auto_inc = "SERIAL" if is_pg else "INTEGER PRIMARY KEY AUTOINCREMENT"
 
+    # Phase 1: Create tables and indexes (these use IF NOT EXISTS, so they're safe)
     with sync_engine.begin() as conn:
         # Table for match metadata
         conn.execute(sa_text('''CREATE TABLE IF NOT EXISTS match_details
@@ -77,31 +80,6 @@ def init_match_stats_tables():
                           team_flashed INTEGER,
                           FOREIGN KEY (match_id) REFERENCES match_details(match_id))'''))
 
-        # Create indexes for faster queries
-        conn.execute(sa_text('''CREATE INDEX IF NOT EXISTS idx_player_match
-                     ON player_match_stats(player_name, match_id)'''))
-        conn.execute(sa_text('''CREATE INDEX IF NOT EXISTS idx_match_date
-                     ON match_details(date_analyzed)'''))
-
-        # Migration: Add player_team and match_result if not exists
-        for col, col_type in [('player_team', 'INTEGER'), ('match_result', 'TEXT')]:
-            try:
-                conn.execute(sa_text(f"ALTER TABLE player_match_stats ADD COLUMN {col} {col_type}"))
-            except:
-                pass
-
-        # Migrations for Extended Stats
-        new_cols = ['total_spent', 'entry_kills', 'entry_deaths', 'clutch_wins', 'rounds_last_alive', 'team_flashed',
-                    'flash_assists', 'bomb_plants', 'bomb_defuses', 'multi_kills', 'weapon_kills', 'rating']
-        for col in new_cols:
-            try:
-                col_type = "TEXT" if "json" in col or "kills" in col and "entry" not in col else "INTEGER"
-                if col in ['multi_kills', 'weapon_kills']:
-                    col_type = "TEXT"
-                conn.execute(sa_text(f"ALTER TABLE player_match_stats ADD COLUMN {col} {col_type} DEFAULT 0"))
-            except:
-                pass
-
         # Table for tracking Cybershoke lobbies
         conn.execute(sa_text('''CREATE TABLE IF NOT EXISTS cybershoke_lobbies
                      (lobby_id TEXT PRIMARY KEY,
@@ -110,15 +88,40 @@ def init_match_stats_tables():
                       analysis_status TEXT DEFAULT 'pending',
                       notes TEXT)'''))
 
-        # Create unique index on cybershoke_id
+        # Create indexes for faster queries
+        conn.execute(sa_text('''CREATE INDEX IF NOT EXISTS idx_player_match
+                     ON player_match_stats(player_name, match_id)'''))
+        conn.execute(sa_text('''CREATE INDEX IF NOT EXISTS idx_match_date
+                     ON match_details(date_analyzed)'''))
         conn.execute(sa_text('''CREATE INDEX IF NOT EXISTS idx_cybershoke_id
                      ON match_details(cybershoke_id)'''))
 
-        # Migration: Add lobby_url column if not exists
+    # Phase 2: Run ALTER TABLE migrations — each in its own transaction
+    # so that a failure (column already exists) doesn't poison the rest.
+    migration_cols = [
+        ("player_match_stats", "player_team", "INTEGER"),
+        ("player_match_stats", "match_result", "TEXT"),
+        ("player_match_stats", "total_spent", "INTEGER DEFAULT 0"),
+        ("player_match_stats", "entry_kills", "INTEGER DEFAULT 0"),
+        ("player_match_stats", "entry_deaths", "INTEGER DEFAULT 0"),
+        ("player_match_stats", "clutch_wins", "INTEGER DEFAULT 0"),
+        ("player_match_stats", "rounds_last_alive", "INTEGER DEFAULT 0"),
+        ("player_match_stats", "team_flashed", "INTEGER DEFAULT 0"),
+        ("player_match_stats", "flash_assists", "INTEGER DEFAULT 0"),
+        ("player_match_stats", "bomb_plants", "INTEGER DEFAULT 0"),
+        ("player_match_stats", "bomb_defuses", "INTEGER DEFAULT 0"),
+        ("player_match_stats", "multi_kills", "TEXT DEFAULT '0'"),
+        ("player_match_stats", "weapon_kills", "TEXT DEFAULT '0'"),
+        ("player_match_stats", "rating", "REAL DEFAULT 0"),
+        ("match_details", "lobby_url", "TEXT"),
+    ]
+    for table, col, col_type in migration_cols:
         try:
-            conn.execute(sa_text("ALTER TABLE match_details ADD COLUMN lobby_url TEXT"))
-        except:
-            pass
+            with sync_engine.begin() as conn:
+                conn.execute(sa_text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"))
+                print(f"[MIGRATION] Added {table}.{col}")
+        except Exception:
+            pass  # column already exists — safe to ignore
 
 
 def is_lobby_already_analyzed(cybershoke_id):
