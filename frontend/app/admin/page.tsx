@@ -448,7 +448,7 @@ export default function AdminPage() {
                                         </label>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                             <input
-                                                type="range" min={1} max={10} step={0.5}
+                                                type="range" min={1} max={10} step={0.1}
                                                 value={newPlayer[f]}
                                                 onChange={e => setNewPlayer({ ...newPlayer, [f]: Number(e.target.value) })}
                                                 style={{ width: 100, accentColor: 'var(--neon-green)' }}
@@ -519,7 +519,7 @@ export default function AdminPage() {
                                             <td style={{ textAlign: 'center' }}>
                                                 {editing === p.name ? (
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}>
-                                                        <input type="range" min={1} max={10} step={0.5}
+                                                        <input type="range" min={1} max={10} step={0.1}
                                                             value={editForm.aim}
                                                             onChange={e => setEditForm({ ...editForm, aim: Number(e.target.value) })}
                                                             style={{ width: 60, accentColor: 'var(--neon-green)' }} />
@@ -532,7 +532,7 @@ export default function AdminPage() {
                                             <td style={{ textAlign: 'center' }}>
                                                 {editing === p.name ? (
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}>
-                                                        <input type="range" min={1} max={10} step={0.5}
+                                                        <input type="range" min={1} max={10} step={0.1}
                                                             value={editForm.util}
                                                             onChange={e => setEditForm({ ...editForm, util: Number(e.target.value) })}
                                                             style={{ width: 60, accentColor: 'var(--blue)' }} />
@@ -545,7 +545,7 @@ export default function AdminPage() {
                                             <td style={{ textAlign: 'center' }}>
                                                 {editing === p.name ? (
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}>
-                                                        <input type="range" min={1} max={10} step={0.5}
+                                                        <input type="range" min={1} max={10} step={0.1}
                                                             value={editForm.team_play}
                                                             onChange={e => setEditForm({ ...editForm, team_play: Number(e.target.value) })}
                                                             style={{ width: 60, accentColor: 'var(--purple)' }} />
@@ -685,7 +685,7 @@ export default function AdminPage() {
                                             {f === 'team_play' ? 'Team Play' : f.charAt(0).toUpperCase() + f.slice(1)}
                                         </label>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                            <input type="range" min={1} max={10} step={0.5}
+                                            <input type="range" min={1} max={10} step={0.1}
                                                 value={newUser[f]}
                                                 onChange={e => setNewUser({ ...newUser, [f]: Number(e.target.value) })}
                                                 style={{ width: 80, accentColor: f === 'aim' ? 'var(--neon-green)' : f === 'util' ? 'var(--blue)' : 'var(--purple)' }}
@@ -814,7 +814,7 @@ export default function AdminPage() {
                                                                 {f === 'team_play' ? 'Team Play' : f.charAt(0).toUpperCase() + f.slice(1)}
                                                             </label>
                                                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                                                <input type="range" min={1} max={10} step={0.5}
+                                                                <input type="range" min={1} max={10} step={0.1}
                                                                     value={userEditForm[f]}
                                                                     onChange={e => setUserEditForm({ ...userEditForm, [f]: Number(e.target.value) })}
                                                                     style={{ width: 80, accentColor: f === 'aim' ? 'var(--neon-green)' : f === 'util' ? 'var(--blue)' : 'var(--purple)' }} />

@@ -9,7 +9,6 @@ import pandas as pd
 import uvicorn
 import random
 import json
-import sqlite3
 import os
 import requests
 import datetime
@@ -37,6 +36,9 @@ from tournament_logic import (
 # In-memory store for player pings (username -> ms)
 PLAYER_PINGS: Dict[str, float] = {}
 
+def _is_postgres():
+    return sync_engine.name == 'postgresql'
+
 from database import (
     init_db, init_async_db, get_player_stats, save_draft_state, load_draft_state,
     clear_draft_state, get_roommates, set_roommates,
@@ -44,8 +46,10 @@ from database import (
     get_vote_status, set_draft_pins, submit_vote, update_elo,
     init_empty_captains, claim_captain_spot,
     get_captain_by_name, get_captain_by_pin, is_captain_banned,
-    check_captain_placeholder, insert_banned_captain
+    check_captain_placeholder, insert_banned_captain,
+    sync_engine
 )
+from sqlalchemy import text as sa_text
 from match_stats_db import (
     init_match_stats_tables, save_match_stats, get_player_aggregate_stats,
     get_recent_matches, get_season_stats_dump, get_match_scoreboard,
@@ -268,13 +272,15 @@ async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
     
     # Auto-create player in the players table so they're available for drafting
     try:
-        conn = sqlite3.connect('cs2_history.db')
-        conn.execute(
-            "INSERT OR IGNORE INTO players (name, elo, aim, util, team_play, secret_word) VALUES (?, 1200, 5, 5, 5, ?)",
-            (display, display.lower())
-        )
-        conn.commit()
-        conn.close()
+        with sync_engine.begin() as conn:
+            if _is_postgres():
+                conn.execute(sa_text(
+                    "INSERT INTO players (name, elo, aim, util, team_play, secret_word) VALUES (:name, 1200, 5, 5, 5, :sw) ON CONFLICT (name) DO NOTHING"
+                ), {"name": display, "sw": display.lower()})
+            else:
+                conn.execute(sa_text(
+                    "INSERT OR IGNORE INTO players (name, elo, aim, util, team_play, secret_word) VALUES (:name, 1200, 5, 5, 5, :sw)"
+                ), {"name": display, "sw": display.lower()})
     except Exception as e:
         print(f"[REGISTER] Could not auto-create player row: {e}")
         
@@ -415,19 +421,18 @@ async def my_matches(current_user: User = Depends(get_current_user), season: str
         end = s_info.get("end_date", "2099-12-31")
     else:
         start, end = "2024-01-01", "2099-12-31"
-    conn = sqlite3.connect('cs2_history.db')
-    q = f'''
-        SELECT md.match_id, md.map, md.score_t || '-' || md.score_ct as score, md.date_analyzed,
-               pms.kills, pms.deaths, pms.assists, pms.adr, pms.rating
-        FROM player_match_stats pms
-        JOIN match_details md ON pms.match_id = md.match_id
-        WHERE pms.player_name = ?
-          AND date(md.date_analyzed) >= date(?)
-          AND date(md.date_analyzed) <= date(?)
-        ORDER BY md.date_analyzed DESC
-    '''
-    df = pd.read_sql_query(q, conn, params=[name, start, end])
-    conn.close()
+    with sync_engine.connect() as conn:
+        q = '''
+            SELECT md.match_id, md.map, md.score_t || '-' || md.score_ct as score, md.date_analyzed,
+                   pms.kills, pms.deaths, pms.assists, pms.adr, pms.rating
+            FROM player_match_stats pms
+            JOIN match_details md ON pms.match_id = md.match_id
+            WHERE pms.player_name = :name
+              AND date(md.date_analyzed) >= date(:start)
+              AND date(md.date_analyzed) <= date(:end)
+            ORDER BY md.date_analyzed DESC
+        '''
+        df = pd.read_sql_query(q, conn, params={"name": name, "start": start, "end": end})
     return df_to_records(df)
 
 # ──────────────────────────────────────────────
@@ -482,37 +487,29 @@ def list_players():
 
 @app.post("/api/players")
 def create_player(req: PlayerCreateRequest):
-    conn = sqlite3.connect('cs2_history.db')
-    try:
-        conn.execute(
-            "INSERT OR IGNORE INTO players (name, elo, aim, util, team_play, secret_word) VALUES (?, 1200, ?, ?, ?, ?)",
-            (req.name, req.aim, req.util, req.team_play, "cs2pro")
-        )
-        conn.commit()
-        return {"status": "ok", "message": f"Added {req.name}"}
-    finally:
-        conn.close()
+    with sync_engine.begin() as conn:
+        if _is_postgres():
+            conn.execute(sa_text(
+                "INSERT INTO players (name, elo, aim, util, team_play, secret_word) VALUES (:name, 1200, :aim, :util, :tp, 'cs2pro') ON CONFLICT (name) DO NOTHING"
+            ), {"name": req.name, "aim": req.aim, "util": req.util, "tp": req.team_play})
+        else:
+            conn.execute(sa_text(
+                "INSERT OR IGNORE INTO players (name, elo, aim, util, team_play, secret_word) VALUES (:name, 1200, :aim, :util, :tp, 'cs2pro')"
+            ), {"name": req.name, "aim": req.aim, "util": req.util, "tp": req.team_play})
+    return {"status": "ok", "message": f"Added {req.name}"}
 
 @app.put("/api/players/{name}")
 def update_player(name: str, req: PlayerUpdateRequest):
-    conn = sqlite3.connect('cs2_history.db')
-    try:
-        conn.execute("UPDATE players SET aim=?, util=?, team_play=? WHERE name=?",
-                      (req.aim, req.util, req.team_play, name))
-        conn.commit()
-        return {"status": "ok"}
-    finally:
-        conn.close()
+    with sync_engine.begin() as conn:
+        conn.execute(sa_text("UPDATE players SET aim=:aim, util=:util, team_play=:tp WHERE name=:name"),
+                      {"aim": req.aim, "util": req.util, "tp": req.team_play, "name": name})
+    return {"status": "ok"}
 
 @app.delete("/api/players/{name}")
 def delete_player(name: str):
-    conn = sqlite3.connect('cs2_history.db')
-    try:
-        conn.execute("DELETE FROM players WHERE name=?", (name,))
-        conn.commit()
-        return {"status": "ok"}
-    finally:
-        conn.close()
+    with sync_engine.begin() as conn:
+        conn.execute(sa_text("DELETE FROM players WHERE name=:name"), {"name": name})
+    return {"status": "ok"}
 
 # ──────────────────────────────────────────────
 # ADMIN — USER MANAGEMENT
@@ -527,12 +524,9 @@ async def list_users(current_user: User = Depends(get_current_user), db: AsyncSe
     users = result.scalars().all()
     
     # Also get player data to show which users have player entries
-    conn = sqlite3.connect('cs2_history.db')
-    try:
-        player_rows = conn.execute("SELECT name, aim, util, team_play, elo FROM players").fetchall()
+    with sync_engine.connect() as conn:
+        player_rows = conn.execute(sa_text("SELECT name, aim, util, team_play, elo FROM players")).fetchall()
         player_map = {r[0]: {"aim": r[1], "util": r[2], "team_play": r[3], "elo": r[4]} for r in player_rows}
-    finally:
-        conn.close()
     
     return [
         {
@@ -620,13 +614,15 @@ async def admin_create_user(req: dict, current_user: User = Depends(get_current_
 
     # Auto-create player row
     try:
-        conn = sqlite3.connect('cs2_history.db')
-        conn.execute(
-            "INSERT OR IGNORE INTO players (name, elo, aim, util, team_play, secret_word) VALUES (?, 1200, ?, ?, ?, ?)",
-            (display_name, aim, util, team_play, display_name.lower())
-        )
-        conn.commit()
-        conn.close()
+        with sync_engine.begin() as conn:
+            if _is_postgres():
+                conn.execute(sa_text(
+                    "INSERT INTO players (name, elo, aim, util, team_play, secret_word) VALUES (:name, 1200, :aim, :util, :tp, :sw) ON CONFLICT (name) DO NOTHING"
+                ), {"name": display_name, "aim": aim, "util": util, "tp": team_play, "sw": display_name.lower()})
+            else:
+                conn.execute(sa_text(
+                    "INSERT OR IGNORE INTO players (name, elo, aim, util, team_play, secret_word) VALUES (:name, 1200, :aim, :util, :tp, :sw)"
+                ), {"name": display_name, "aim": aim, "util": util, "tp": team_play, "sw": display_name.lower()})
     except Exception as e:
         print(f"[ADMIN CREATE] Could not create player row: {e}")
 
@@ -664,11 +660,9 @@ async def admin_update_user(user_id: str, req: dict, current_user: User = Depend
     # If display_name changed, rename the player row too
     if user.display_name != old_display and old_display:
         try:
-            conn = sqlite3.connect('cs2_history.db')
-            conn.execute("UPDATE players SET name = ?, secret_word = ? WHERE name = ?",
-                         (user.display_name, user.display_name.lower(), old_display))
-            conn.commit()
-            conn.close()
+            with sync_engine.begin() as conn:
+                conn.execute(sa_text("UPDATE players SET name = :new_name, secret_word = :sw WHERE name = :old_name"),
+                             {"new_name": user.display_name, "sw": user.display_name.lower(), "old_name": old_display})
         except Exception as e:
             print(f"[ADMIN UPDATE] Could not rename player row: {e}")
 
@@ -703,28 +697,27 @@ async def admin_update_scores(user_id: str, req: dict, current_user: User = Depe
         raise HTTPException(404, "User not found")
 
     display = user.display_name or user.username
-    conn = sqlite3.connect('cs2_history.db')
-    try:
+    with sync_engine.begin() as conn:
         # Ensure player row exists
-        cursor = conn.execute("SELECT 1 FROM players WHERE name = ?", (display,))
-        if not cursor.fetchone():
-            conn.execute(
-                "INSERT INTO players (name, elo, aim, util, team_play, secret_word) VALUES (?, 1200, 5, 5, 5, ?)",
-                (display, display.lower())
-            )
+        row = conn.execute(sa_text("SELECT 1 FROM players WHERE name = :name"), {"name": display}).fetchone()
+        if not row:
+            if _is_postgres():
+                conn.execute(sa_text(
+                    "INSERT INTO players (name, elo, aim, util, team_play, secret_word) VALUES (:name, 1200, 5, 5, 5, :sw) ON CONFLICT (name) DO NOTHING"
+                ), {"name": display, "sw": display.lower()})
+            else:
+                conn.execute(sa_text(
+                    "INSERT OR IGNORE INTO players (name, elo, aim, util, team_play, secret_word) VALUES (:name, 1200, 5, 5, 5, :sw)"
+                ), {"name": display, "sw": display.lower()})
 
         updates = []
-        params = []
+        params = {"name": display}
         for field in ("aim", "util", "team_play", "elo"):
             if field in req and req[field] is not None:
-                updates.append(f"{field} = ?")
-                params.append(float(req[field]))
+                updates.append(f"{field} = :{field}")
+                params[field] = float(req[field])
         if updates:
-            params.append(display)
-            conn.execute(f"UPDATE players SET {', '.join(updates)} WHERE name = ?", params)
-            conn.commit()
-    finally:
-        conn.close()
+            conn.execute(sa_text(f"UPDATE players SET {', '.join(updates)} WHERE name = :name"), params)
 
     return {"status": "ok"}
 
@@ -737,22 +730,22 @@ async def sync_players(current_user: User = Depends(get_current_user), db: Async
     result = await db.execute(select(User))
     users = result.scalars().all()
     
-    conn = sqlite3.connect('cs2_history.db')
     synced = 0
-    try:
+    with sync_engine.begin() as conn:
         for u in users:
             display = u.display_name or u.username
-            cursor = conn.execute("SELECT 1 FROM players WHERE name = ?", (display,))
-            if not cursor.fetchone():
-                conn.execute(
-                    "INSERT INTO players (name, elo, aim, util, team_play, secret_word) VALUES (?, 1200, 5, 5, 5, ?)",
-                    (display, display.lower())
-                )
+            row = conn.execute(sa_text("SELECT 1 FROM players WHERE name = :name"), {"name": display}).fetchone()
+            if not row:
+                if _is_postgres():
+                    conn.execute(sa_text(
+                        "INSERT INTO players (name, elo, aim, util, team_play, secret_word) VALUES (:name, 1200, 5, 5, 5, :sw) ON CONFLICT (name) DO NOTHING"
+                    ), {"name": display, "sw": display.lower()})
+                else:
+                    conn.execute(sa_text(
+                        "INSERT OR IGNORE INTO players (name, elo, aim, util, team_play, secret_word) VALUES (:name, 1200, 5, 5, 5, :sw)"
+                    ), {"name": display, "sw": display.lower()})
                 synced += 1
-        conn.commit()
-    finally:
-        conn.close()
-    
+
     return {"status": "ok", "synced": synced}
 
 # ──────────────────────────────────────────────
@@ -1334,15 +1327,14 @@ def leaderboard(season: str = Query("Season 2 (Demos)")):
         return {"mode": "manual", "data": df_to_records(df)}
 
     # Season 2 / Demo / All Time
-    conn = sqlite3.connect('cs2_history.db')
     date_filter = ""
-    params = []
+    params = {}
     if start_date:
-        date_filter += " AND date(md.date_analyzed) >= date(?)"
-        params.append(str(start_date))
+        date_filter += " AND date(md.date_analyzed) >= date(:start_date)"
+        params["start_date"] = str(start_date)
     if end_date:
-        date_filter += " AND date(md.date_analyzed) <= date(?)"
-        params.append(str(end_date))
+        date_filter += " AND date(md.date_analyzed) <= date(:end_date)"
+        params["end_date"] = str(end_date)
 
     query = f'''
         SELECT
@@ -1360,11 +1352,11 @@ def leaderboard(season: str = Query("Season 2 (Demos)")):
         JOIN match_details md ON pms.match_id = md.match_id
         WHERE pms.rating IS NOT NULL {date_filter}
         GROUP BY pms.player_name
-        HAVING matches >= 5
+        HAVING COUNT(*) >= 5
         ORDER BY rating DESC
     '''
-    df = pd.read_sql_query(query, conn, params=params)
-    conn.close()
+    with sync_engine.connect() as conn:
+        df = pd.read_sql_query(query, conn, params=params)
 
     if not df.empty:
         df['winrate'] = 0.0
@@ -1390,15 +1382,14 @@ def player_stats(name: str, season: str = Query("Season 2 (Demos)")):
         return []
 
     # Inject rank
-    conn = sqlite3.connect('cs2_history.db')
     date_filter = ""
-    params = []
+    params = {}
     if start_date:
-        date_filter += " AND date(md.date_analyzed) >= date(?)"
-        params.append(str(start_date))
+        date_filter += " AND date(md.date_analyzed) >= date(:start_date)"
+        params["start_date"] = str(start_date)
     if end_date:
-        date_filter += " AND date(md.date_analyzed) <= date(?)"
-        params.append(str(end_date))
+        date_filter += " AND date(md.date_analyzed) <= date(:end_date)"
+        params["end_date"] = str(end_date)
 
     lb_query = f'''
         SELECT pms.player_name, ROUND(AVG(NULLIF(pms.rating, 0)), 2) as rating
@@ -1408,8 +1399,8 @@ def player_stats(name: str, season: str = Query("Season 2 (Demos)")):
         GROUP BY pms.player_name
         ORDER BY rating DESC
     '''
-    lb_df = pd.read_sql_query(lb_query, conn, params=params)
-    conn.close()
+    with sync_engine.connect() as conn:
+        lb_df = pd.read_sql_query(lb_query, conn, params=params)
 
     rank = None
     if not lb_df.empty:
@@ -1431,15 +1422,14 @@ def player_matches(name: str, season: str = Query("Season 2 (Demos)")):
     else:
         start_date, end_date = None, None
 
-    conn = sqlite3.connect('cs2_history.db')
     date_filter = ""
-    params = [name]
+    params = {"name": name}
     if start_date:
-        date_filter += " AND date(md.date_analyzed) >= date(?)"
-        params.append(str(start_date))
+        date_filter += " AND date(md.date_analyzed) >= date(:start_date)"
+        params["start_date"] = str(start_date)
     if end_date:
-        date_filter += " AND date(md.date_analyzed) <= date(?)"
-        params.append(str(end_date))
+        date_filter += " AND date(md.date_analyzed) <= date(:end_date)"
+        params["end_date"] = str(end_date)
 
     query = f'''
         SELECT
@@ -1449,11 +1439,11 @@ def player_matches(name: str, season: str = Query("Season 2 (Demos)")):
             md.lobby_url as lobby
         FROM player_match_stats pms
         JOIN match_details md ON pms.match_id = md.match_id
-        WHERE pms.player_name = ? {date_filter}
+        WHERE pms.player_name = :name {date_filter}
         ORDER BY md.date_analyzed DESC
     '''
-    df = pd.read_sql_query(query, conn, params=params)
-    conn.close()
+    with sync_engine.connect() as conn:
+        df = pd.read_sql_query(query, conn, params=params)
     return df_to_records(df)
 
 # ──────────────────────────────────────────────
@@ -1520,10 +1510,9 @@ def season_trophies():
 
 @app.get("/api/trophies/match/{match_id}")
 def match_trophies(match_id: str):
-    conn = sqlite3.connect('cs2_history.db')
-    query = "SELECT * FROM player_match_stats WHERE match_id = ?"
-    df = pd.read_sql_query(query, conn, params=(match_id,))
-    conn.close()
+    with sync_engine.connect() as conn:
+        query = "SELECT * FROM player_match_stats WHERE match_id = :mid"
+        df = pd.read_sql_query(query, conn, params={"mid": match_id})
 
     if df.empty:
         return {"trophies": [], "scoreboard": []}
