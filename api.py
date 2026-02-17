@@ -47,6 +47,7 @@ from database import (
     init_empty_captains, claim_captain_spot,
     get_captain_by_name, get_captain_by_pin, is_captain_banned,
     check_captain_placeholder, insert_banned_captain,
+    add_captain_cooldown, decrement_captain_cooldowns, get_captain_cooldown,
     sync_engine
 )
 from sqlalchemy import text as sa_text
@@ -341,6 +342,7 @@ async def read_users_me(current_user: User = Depends(get_current_user)):
     user_data["is_captain"] = cap_row is not None
     user_data["captain_pin"] = cap_row[1] if cap_row else None
     user_data["captain_vote"] = cap_row[2] if cap_row else None
+    user_data["captain_cooldown"] = get_captain_cooldown(display)
     
     # Check if user is in the current draft
     saved = load_draft_state()
@@ -763,6 +765,9 @@ async def run_draft(req: DraftRequest, current_user: Optional[User] = Depends(ge
     # Get creator name
     creator_name = current_user.display_name if current_user else None
 
+    # Decrement bans from previous drafts
+    decrement_captain_cooldowns()
+
     player_df = get_player_stats()
 
     if req.mode == "kd_balanced":
@@ -938,7 +943,7 @@ async def reroll_draft(req: RerollRequest, current_user: User = Depends(get_curr
     # Ban the reroller (unless admin? assume admin reroll is god-mode, but if acting as captain...)
     # Prompt implies "captain decided to reroll".
     if not is_admin: 
-        insert_banned_captain(reroller_name)
+        add_captain_cooldown(reroller_name, 2)
 
     # Retain the other captain
     if other_captain:
@@ -978,7 +983,9 @@ async def step_in_as_captain(current_user: User = Depends(get_current_user)):
         raise HTTPException(403, "You are not in this draft")
 
     if is_captain_banned(display):
-        raise HTTPException(403, "You forfeited captaincy by rerolling")
+        rem = get_captain_cooldown(display)
+        msg = f"You are banned from captaincy for the next {rem} draft(s) due to rerolling." if rem > 0 else "You forfeited captaincy by rerolling"
+        raise HTTPException(403, msg)
 
     import uuid
     pin = str(uuid.uuid4())

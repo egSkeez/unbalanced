@@ -93,7 +93,7 @@ export default function CaptainPage() {
                 // Not a captain (401) — clear any stale session
                 setSession(null);
             });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [user, authLoading]);
 
     // ─── POLL FOR STATE UPDATES ──────────────────────────
@@ -601,14 +601,30 @@ export default function CaptainPage() {
                     <p style={{ color: 'var(--text-secondary)', marginBottom: 24, fontSize: '0.9rem' }}>
                         Step in as captain for <strong style={{ color: userTeam === draft.name_a ? 'var(--blue)' : 'var(--orange)' }}>{userTeam}</strong> to approve teams and pick maps
                     </p>
-                    <button
-                        className="btn btn-primary btn-block"
-                        onClick={handleStepIn}
-                        disabled={steppingIn}
-                        style={{ fontSize: 16, padding: '14px 0' }}
-                    >
-                        {steppingIn ? '⏳ Stepping in...' : '👑 STEP IN AS CAPTAIN'}
-                    </button>
+
+                    {user.captain_cooldown && user.captain_cooldown > 0 ? (
+                        <>
+                            <button
+                                className="btn btn-primary btn-block"
+                                disabled={true}
+                                style={{ fontSize: 16, padding: '14px 0', opacity: 0.5, cursor: 'not-allowed' }}
+                            >
+                                ⏳ COOLDOWN ({user.captain_cooldown} DRAFTS)
+                            </button>
+                            <p style={{ color: 'var(--red)', marginTop: 12, fontSize: 13, fontWeight: 500 }}>
+                                You are banned from captaincy for {user.captain_cooldown} more draft{user.captain_cooldown > 1 ? 's' : ''}.
+                            </p>
+                        </>
+                    ) : (
+                        <button
+                            className="btn btn-primary btn-block"
+                            onClick={handleStepIn}
+                            disabled={steppingIn}
+                            style={{ fontSize: 16, padding: '14px 0' }}
+                        >
+                            {steppingIn ? '⏳ Stepping in...' : '👑 STEP IN AS CAPTAIN'}
+                        </button>
+                    )}
                 </div>
             )}
 

@@ -90,6 +90,10 @@ def init_db():
         conn.execute(text(f"""CREATE TABLE IF NOT EXISTS active_veto_state 
                      (id INTEGER PRIMARY KEY, remaining_maps TEXT, protected_maps TEXT, current_turn TEXT)"""))
 
+        # Captain Cooldowns (Bans)
+        conn.execute(text('''CREATE TABLE IF NOT EXISTS captain_cooldowns 
+                     (name TEXT PRIMARY KEY, drafts_remaining INTEGER)'''))
+
         # Settings
         conn.execute(text('''CREATE TABLE IF NOT EXISTS settings 
                      (key TEXT PRIMARY KEY, value TEXT)'''))
@@ -155,11 +159,7 @@ def save_draft_state(t1, t2, name_a, name_b, avg1, avg2, mode="balanced", create
         # VALUES (..., ?, ?, ?, ?) -> current_lobby, cybershoke_match_id, draft_mode, created_by
         # The variables passed were: (..., None, None, mode, created_by)
         # Re-reading original:
-        # VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        # params: (json.dumps(t1), json.dumps(t2), name_a, name_b, avg1, avg2, None, None, None, mode, created_by)
-        # 11 params. Target cols: id(1), t1, t2, na, nb, a1, a2, cur_map, cur_lobby, cs_id, mode, created_by. (12 cols).
-        # Original had 11 placeholders??
-        # "VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)" -> 12 items including '1'. 11 placeholders.
+        # VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)" -> 12 items including '1'. 11 placeholders.
         # Params supplied: 11 items. Matches.
         # Params: t1, t2, na, nb, a1, a2, None, None, None, mode, created_by
         # Col 8: current_map (None)
@@ -387,12 +387,20 @@ def get_captain_by_pin(pin):
     return tuple(row) if row else None
 
 def is_captain_banned(name):
-    """Check if a player is banned from captaincy (rerolled)."""
+    """Check if a player is banned from captaincy (rerolled). CHECK PERSISTENT COOLDOWN."""
+    # Check cooldown table
     with sync_engine.connect() as conn:
+        # Check cooldowns
+        cd_row = conn.execute(text("SELECT drafts_remaining FROM captain_cooldowns WHERE name = :name"), {"name": name}).fetchone()
+        if cd_row and cd_row[0] > 0:
+            return True
+            
+        # Also check current draft ban (transient) for safety
         row = conn.execute(
             text("SELECT 1 FROM current_draft_votes WHERE captain_name = :name AND vote = 'BANNED'"),
             {"name": name}
         ).fetchone()
+        
     return row is not None
 
 def check_captain_placeholder(team_num):
@@ -412,6 +420,32 @@ def insert_banned_captain(name):
             text("INSERT INTO current_draft_votes (captain_name, pin, vote) VALUES (:name, '', 'BANNED')"),
             {"name": name}
         )
+
+# --- CAPTAIN COOLDOWN FUNCTIONS ---
+def add_captain_cooldown(name, duration=2):
+    """Adds a cooldown for a player."""
+    is_postgres = sync_engine.name == 'postgresql'
+    with sync_engine.begin() as conn:
+        if is_postgres:
+            conn.execute(text(
+                "INSERT INTO captain_cooldowns (name, drafts_remaining) VALUES (:name, :dur) ON CONFLICT (name) DO UPDATE SET drafts_remaining = :dur"
+            ), {"name": name, "dur": duration})
+        else:
+             conn.execute(text(
+                "INSERT OR REPLACE INTO captain_cooldowns (name, drafts_remaining) VALUES (:name, :dur)"
+            ), {"name": name, "dur": duration})
+
+def decrement_captain_cooldowns():
+    """Decrements cooldown for all players. Removes if <= 0."""
+    with sync_engine.begin() as conn:
+        conn.execute(text("UPDATE captain_cooldowns SET drafts_remaining = drafts_remaining - 1"))
+        conn.execute(text("DELETE FROM captain_cooldowns WHERE drafts_remaining <= 0"))
+
+def get_captain_cooldown(name):
+    """Returns drafts remaining for a player, or 0 if none."""
+    with sync_engine.connect() as conn:
+        row = conn.execute(text("SELECT drafts_remaining FROM captain_cooldowns WHERE name = :name"), {"name": name}).fetchone()
+    return row[0] if row else 0
 
 # --- MATCH LOGGING ---
 def update_elo(t1, t2, name_a, name_b, winner_idx, map_name):

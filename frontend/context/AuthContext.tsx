@@ -18,6 +18,7 @@ export interface User {
     in_draft?: boolean;
     draft_team_name?: string;
     ping?: number;
+    captain_cooldown?: number;
 }
 
 interface AuthContextType {
