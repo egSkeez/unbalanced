@@ -1343,11 +1343,11 @@ def leaderboard(season: str = Query("Season 2 (Demos)")):
         SELECT
             pms.player_name,
             COUNT(*) as matches,
-            ROUND(AVG(pms.score), 1) as avg_score,
-            ROUND(AVG(NULLIF(pms.adr, 0)), 1) as avg_adr,
-            ROUND(AVG(NULLIF(pms.rating, 0)), 2) as rating,
-            ROUND(SUM(pms.kills) * 1.0 / NULLIF(SUM(pms.deaths), 0), 2) as kd_ratio,
-            ROUND(AVG(NULLIF(pms.headshot_pct, 0)), 1) as avg_hs_pct,
+            ROUND(CAST(AVG(pms.score) AS NUMERIC), 1) as avg_score,
+            ROUND(CAST(AVG(NULLIF(pms.adr, 0)) AS NUMERIC), 1) as avg_adr,
+            ROUND(CAST(AVG(NULLIF(pms.rating, 0)) AS NUMERIC), 2) as rating,
+            ROUND(CAST(SUM(pms.kills) * 1.0 / NULLIF(SUM(pms.deaths), 0) AS NUMERIC), 2) as kd_ratio,
+            ROUND(CAST(AVG(NULLIF(pms.headshot_pct, 0)) AS NUMERIC), 1) as avg_hs_pct,
             SUM(pms.kills) as total_kills,
             COUNT(CASE WHEN pms.match_result = 'W' THEN 1 END) as wins,
             COUNT(CASE WHEN pms.match_result = 'L' THEN 1 END) as losses
@@ -1395,7 +1395,7 @@ def player_stats(name: str, season: str = Query("Season 2 (Demos)")):
         params["end_date"] = str(end_date)
 
     lb_query = f'''
-        SELECT pms.player_name, ROUND(AVG(NULLIF(pms.rating, 0)), 2) as rating
+        SELECT pms.player_name, ROUND(CAST(AVG(NULLIF(pms.rating, 0)) AS NUMERIC), 2) as rating
         FROM player_match_stats pms
         JOIN match_details md ON pms.match_id = md.match_id
         WHERE pms.rating IS NOT NULL {date_filter}

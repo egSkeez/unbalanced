@@ -243,8 +243,8 @@ def get_player_stats():
         kd_query = f'''
             SELECT 
                 pms.player_name,
-                ROUND(SUM(pms.kills) * 1.0 / NULLIF(SUM(pms.deaths), 0), 2) as avg_kd,
-                ROUND(AVG(NULLIF(pms.rating, 0)), 2) as avg_rating
+                ROUND(CAST(SUM(pms.kills) * 1.0 / NULLIF(SUM(pms.deaths), 0) AS NUMERIC), 2) as avg_kd,
+                ROUND(CAST(AVG(NULLIF(pms.rating, 0)) AS NUMERIC), 2) as avg_rating
             FROM player_match_stats pms
             JOIN match_details md ON pms.match_id = md.match_id
             WHERE date(md.date_analyzed) >= date('{s2_start}')
