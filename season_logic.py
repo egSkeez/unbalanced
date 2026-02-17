@@ -1,6 +1,4 @@
 from datetime import date
-import sqlite3
-import pandas as pd
 
 def get_current_season_info():
     """
