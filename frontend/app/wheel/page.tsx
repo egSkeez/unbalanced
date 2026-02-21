@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { getPlayers } from '../lib/api';
+import { getPlayers, getDraftState } from '../lib/api';
 
 const COLORS = ['#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF', '#FFA500', '#800080', '#008080', '#FFC0CB'];
 
@@ -9,12 +9,25 @@ export default function WheelPage() {
     const [newName, setNewName] = useState('');
     const [winner, setWinner] = useState('');
     const [spinning, setSpinning] = useState(false);
+    const [hasDraft, setHasDraft] = useState(false);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const angleRef = useRef(0);
     const animRef = useRef<number | null>(null);
 
     useEffect(() => {
-        getPlayers().then(p => setNames(p.map((x: { name: string }) => x.name))).catch(() => { });
+        // Try to pre-fill with the 10 drafted players; fall back to all players
+        getDraftState()
+            .then(d => {
+                if (d.active && d.team1?.length && d.team2?.length) {
+                    setNames([...d.team1, ...d.team2]);
+                    setHasDraft(true);
+                } else {
+                    getPlayers().then(p => setNames(p.map((x: { name: string }) => x.name))).catch(() => { });
+                }
+            })
+            .catch(() => {
+                getPlayers().then(p => setNames(p.map((x: { name: string }) => x.name))).catch(() => { });
+            });
     }, []);
 
     const drawWheel = useCallback(() => {
@@ -142,7 +155,10 @@ export default function WheelPage() {
 
                 {/* Player list */}
                 <div className="card">
-                    <div className="card-header">Players in Wheel ({names.length})</div>
+                    <div className="card-header">
+                        Players in Wheel ({names.length})
+                        {hasDraft && <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--neon-green)', marginLeft: 8 }}>● Drafted</span>}
+                    </div>
 
                     <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
                         <input className="input" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Add player..." onKeyDown={e => e.key === 'Enter' && addPlayer()} />
@@ -161,8 +177,23 @@ export default function WheelPage() {
                     </div>
 
                     <div className="divider" />
-                    <button className="btn btn-sm btn-block" onClick={() => getPlayers().then(p => setNames(p.map((x: { name: string }) => x.name)))}>
-                        🔄 Reset to All Players
+                    {hasDraft && (
+                        <button className="btn btn-sm btn-block" style={{ marginBottom: 8 }} onClick={() =>
+                            getDraftState().then(d => {
+                                if (d.active && d.team1?.length && d.team2?.length) {
+                                    setNames([...d.team1, ...d.team2]);
+                                    setWinner('');
+                                }
+                            }).catch(() => { })
+                        }>
+                            🔄 Reset to Drafted Players
+                        </button>
+                    )}
+                    <button className="btn btn-sm btn-block" onClick={() => {
+                        getPlayers().then(p => { setNames(p.map((x: { name: string }) => x.name)); setWinner(''); }).catch(() => { });
+                        setHasDraft(false);
+                    }}>
+                        👥 Load All Players
                     </button>
                 </div>
             </div>

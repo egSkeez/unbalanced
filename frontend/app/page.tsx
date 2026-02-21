@@ -254,7 +254,8 @@ export default function MixerPage() {
   };
 
   const handleBroadcast = async () => {
-    if (!draft || !lobbyLink) return;
+    if (!draft) return;
+    const activeToken = token || Cookies.get('token');
     try {
       await broadcastToDiscord({
         name_a: draft.name_a,
@@ -263,7 +264,7 @@ export default function MixerPage() {
         team2: draft.team2,
         maps: draft.map_pick || '',
         lobby_link: lobbyLink,
-      }, token || undefined);
+      }, activeToken);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Broadcast failed');
     }
@@ -462,7 +463,7 @@ export default function MixerPage() {
           )}
           <button className="btn btn-danger" onClick={handleClear}>🗑️ Clear Draft</button>
 
-          {(user?.role === 'admin' || (draft.created_by && user?.display_name === draft.created_by)) && lobbyLink && (
+          {(user?.role === 'admin' || (draft.created_by && user?.display_name === draft.created_by)) && draft.map_pick && (
             <button className="btn btn-primary" onClick={handleBroadcast}>
               📢 Send to Discord
             </button>
