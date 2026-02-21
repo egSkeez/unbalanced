@@ -190,6 +190,9 @@ export default function TournamentDetailPage() {
     const [lobbyUrlInput, setLobbyUrlInput] = useState('');
     const [lobbySubmitting, setLobbySubmitting] = useState(false);
 
+    // Match search
+    const [matchSearch, setMatchSearch] = useState('');
+
     const isAdmin = user?.role === 'admin';
     const isCreator = !!(user && tournament?.created_by && user.id === tournament.created_by);
     const canEdit = isAdmin || isCreator;
@@ -810,7 +813,60 @@ export default function TournamentDetailPage() {
             {/* Bracket / Standings Tab */}
             {activeTab === 'bracket' && (
                 <>
-                    {!bracket || bracket.rounds.length === 0 ? (
+                    {/* Match search bar */}
+                    {bracket && bracket.rounds.length > 0 && (
+                        <div style={{ marginBottom: 20, position: 'relative' }}>
+                            <span style={{
+                                position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
+                                fontSize: 16, pointerEvents: 'none',
+                            }}>🔍</span>
+                            <input
+                                className="input"
+                                value={matchSearch}
+                                onChange={e => setMatchSearch(e.target.value)}
+                                placeholder="Search matches by player name..."
+                                style={{ paddingLeft: 36 }}
+                            />
+                        </div>
+                    )}
+
+                    {/* Filtered results */}
+                    {matchSearch.trim() ? (() => {
+                        const q = matchSearch.trim().toLowerCase();
+                        const allMatches = [
+                            ...bracket!.rounds.flatMap(r => r.matches),
+                            ...(bracket!.playoff_rounds?.flatMap(r => r.matches) ?? []),
+                        ].filter(m =>
+                            m.player1?.display_name?.toLowerCase().includes(q) ||
+                            m.player2?.display_name?.toLowerCase().includes(q)
+                        );
+                        return allMatches.length === 0 ? (
+                            <div className="card" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                                No matches found for &quot;{matchSearch}&quot;
+                            </div>
+                        ) : (
+                            <div>
+                                <p style={{ color: 'var(--text-secondary)', marginBottom: 12, fontSize: 13 }}>
+                                    {allMatches.length} match{allMatches.length !== 1 ? 'es' : ''} found
+                                </p>
+                                <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
+                                    {allMatches.map(match => (
+                                        <RoundRobinMatchCard
+                                            key={match.id}
+                                            match={match}
+                                            isAdmin={isAdmin}
+                                            canEdit={canEdit}
+                                            currentUserId={user?.id}
+                                            actionLoading={actionLoading}
+                                            onEditMatch={openScoreDialog}
+                                            onCreateLobby={handleCreateLobby}
+                                            onSubmitLobby={openLobbyDialog}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+                        );
+                    })() : !bracket || bracket.rounds.length === 0 ? (
                         <div className="card" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
                             {isRegistration ? 'Tournament hasn\'t started yet.' : 'No matches found.'}
                         </div>
