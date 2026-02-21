@@ -32,20 +32,19 @@ def process_match_local(match_id, admin_name="Skeez", upload_url=None):
         return False
         
     print(f"Step 2: Analyzing demo file {expected_filename}...")
+    score_res, stats_res, map_name, score_t, score_ct = None, None, None, 0, 0
     try:
         score_res, stats_res, map_name, score_t, score_ct = analyze_demo_file(expected_filename)
-        
-        # Cleanup
+    except Exception as e:
+        print(f"❌ Error during analysis: {e}")
+        stats_res = None
+    finally:
         if os.path.exists(expected_filename):
             os.remove(expected_filename)
             print("Deleted demo file to save space.")
-            
-        if stats_res is None:
-            print(f"❌ Analysis failed: {score_res}")
-            return False
-            
-    except Exception as e:
-        print(f"❌ Error during analysis: {e}")
+
+    if stats_res is None:
+        print(f"❌ Analysis failed: {score_res}")
         return False
 
     print(f"✅ Analysis complete! Raw Score: {score_res}, Map: {map_name}")

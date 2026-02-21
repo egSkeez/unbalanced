@@ -112,23 +112,18 @@ def process_single_match(match_id, web_stats=None, web_score=None, web_map=None)
         return False
     
     print(f"    🔬 Analyzing demo...")
+    score_res, stats_df, map_name, score_t, score_ct = None, None, None, 0, 0
     try:
         score_res, stats_df, map_name, score_t, score_ct = analyze_demo_file(demo_file)
-        
-        # Cleanup demo file
-        if os.path.exists(demo_file):
-            os.remove(demo_file)
-            
-        if stats_df is None:
-            print(f"    ❌ Analysis failed: {score_res}")
-            if web_stats and web_score and web_score != "Unknown":
-                return save_web_only_match(match_id, web_stats, web_score, web_map, lobby_url)
-            return False
     except Exception as e:
         print(f"    ❌ Error during analysis: {e}")
-        # Cleanup on error
+        stats_df = None
+    finally:
         if os.path.exists(demo_file):
             os.remove(demo_file)
+
+    if stats_df is None:
+        print(f"    ❌ Analysis failed: {score_res}")
         if web_stats and web_score and web_score != "Unknown":
             return save_web_only_match(match_id, web_stats, web_score, web_map, lobby_url)
         return False
