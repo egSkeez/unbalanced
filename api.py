@@ -812,6 +812,7 @@ async def run_draft(req: DraftRequest, current_user: Optional[User] = Depends(ge
     # Initialize empty captain slots (First come first served)
     init_empty_captains()
 
+    ratings = {name: float(ovr) for name, ovr in zip(player_df['name'], player_df['overall'].fillna(0))}
     return {
         "team1": t1, "team2": t2,
         "name_a": n_a, "name_b": n_b,
@@ -820,6 +821,7 @@ async def run_draft(req: DraftRequest, current_user: Optional[User] = Depends(ge
         "captain1": None,
         "captain2": None,
         "created_by": creator_name,
+        "ratings": ratings,
     }
 
 @app.get("/api/draft/state")
@@ -885,9 +887,9 @@ async def get_draft_state(current_user: Optional[User] = Depends(get_current_use
 
     lobby_link, lobby_mid = get_lobby_link()
     
-    # Get ratings for sorting
+    # Get OVR ratings for display/sort
     stats_df = get_player_stats()
-    ratings = {name: float(rating) for name, rating in zip(stats_df['name'], stats_df['avg_rating'].fillna(0))}
+    ratings = {name: float(ovr) for name, ovr in zip(stats_df['name'], stats_df['overall'].fillna(0))}
 
     # Inject pings for all players (frontend can filter)
     pings = {name: p for name, p in PLAYER_PINGS.items()}
@@ -985,13 +987,15 @@ async def reroll_draft(req: RerollRequest, current_user: User = Depends(get_curr
         if team_num:
              claim_captain_spot(team_num, other_captain, str(uuid.uuid4()))
 
+    ratings = {name: float(ovr) for name, ovr in zip(player_df['name'], player_df['overall'].fillna(0))}
     return {
         "team1": t1, "team2": t2,
         "name_a": n_a, "name_b": n_b,
         "avg1": a1, "avg2": a2, "gap": gap,
         "captain1": None, "captain2": None,
         "mode": req.mode,
-        "map_pick": existing_map if req.keep_map else None
+        "map_pick": existing_map if req.keep_map else None,
+        "ratings": ratings,
     }
 
 @app.post("/api/draft/step_in")

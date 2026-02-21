@@ -16,6 +16,9 @@ interface DraftInfo {
     avg2: number;
     map_pick?: string;
     lobby_link?: string;
+    mode?: string;
+    ratings?: Record<string, number>;
+    pings?: Record<string, number>;
 }
 
 interface VetoInfo {
@@ -585,36 +588,37 @@ export default function CaptainPage() {
 
             {/* Team cards */}
             <div className="grid-2" style={{ marginBottom: 32 }}>
-                <div className="card" style={userTeam === draft.name_a ? { border: '2px solid var(--blue)' } : {}}>
-                    <div className="team-header team-blue">🔵 {draft.name_a}</div>
-                    {draft.team1?.map((p: string) => (
-                        <div key={p} className={`player-chip ${user?.display_name === p ? 'selected' : ''}`}>
-                            <span style={{ fontWeight: user?.display_name === p ? 700 : 500 }}>
-                                {user?.display_name === p ? '👤 ' : ''}{p}
-                            </span>
-                            {draft.pings?.[p] != null && (
-                                <span style={{ fontSize: 10, color: getPingColor(draft.pings[p]), marginLeft: 'auto' }}>
-                                    {draft.pings[p]}ms
-                                </span>
-                            )}
+                {([
+                    { raw: draft.team1, name: draft.name_a, colorClass: 'team-blue', icon: '🔵', borderColor: 'var(--blue)' },
+                    { raw: draft.team2, name: draft.name_b, colorClass: 'team-orange', icon: '🔴', borderColor: 'var(--orange)' },
+                ] as const).map(({ raw, name, colorClass, icon, borderColor }) => {
+                    const sorted = raw ? [...raw].sort((a, b) => (draft.ratings?.[b] ?? 0) - (draft.ratings?.[a] ?? 0)) : [];
+                    const isMyTeam = userTeam === name;
+                    return (
+                        <div key={name} className="card" style={isMyTeam ? { border: `2px solid ${borderColor}` } : {}}>
+                            <div className={`team-header ${colorClass}`}>{icon} {name}</div>
+                            {sorted.map((p: string) => (
+                                <div key={p} className={`player-chip ${user?.display_name === p ? 'selected' : ''}`} style={{ justifyContent: 'space-between' }}>
+                                    <span style={{ fontWeight: user?.display_name === p ? 700 : 500 }}>
+                                        {user?.display_name === p ? '👤 ' : ''}{p}
+                                    </span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        {draft.pings?.[p] != null && (
+                                            <span style={{ fontSize: 10, color: getPingColor(draft.pings[p]) }}>
+                                                {draft.pings[p]}ms
+                                            </span>
+                                        )}
+                                        {draft.ratings?.[p] != null && (
+                                            <span className="font-orbitron" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                                {(draft.ratings[p] as number).toFixed(2)}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
                         </div>
-                    ))}
-                </div>
-                <div className="card" style={userTeam === draft.name_b ? { border: '2px solid var(--orange)' } : {}}>
-                    <div className="team-header team-orange">🔴 {draft.name_b}</div>
-                    {draft.team2?.map((p: string) => (
-                        <div key={p} className={`player-chip ${user?.display_name === p ? 'selected' : ''}`}>
-                            <span style={{ fontWeight: user?.display_name === p ? 700 : 500 }}>
-                                {user?.display_name === p ? '👤 ' : ''}{p}
-                            </span>
-                            {draft.pings?.[p] != null && (
-                                <span style={{ fontSize: 10, color: getPingColor(draft.pings[p]), marginLeft: 'auto' }}>
-                                    {draft.pings[p]}ms
-                                </span>
-                            )}
-                        </div>
-                    ))}
-                </div>
+                    );
+                })}
             </div>
 
             {/* Step In as Captain button */}
