@@ -15,6 +15,7 @@ interface DraftInfo {
     avg1: number;
     avg2: number;
     map_pick?: string;
+    lobby_link?: string;
 }
 
 interface VetoInfo {
@@ -43,6 +44,7 @@ export default function CaptainPage() {
     const [draftState, setDraftState] = useState<any>(null);
     const [draftLoading, setDraftLoading] = useState(true);
     const [constants, setConstants] = useState<{ map_pool: string[]; map_logos: Record<string, string> }>({ map_pool: [], map_logos: {} });
+    const [lobbyLink, setLobbyLink] = useState('');
 
     // Captain session state (only after stepping in)
     const [session, setSession] = useState<CaptainSession | null>(null);
@@ -60,7 +62,10 @@ export default function CaptainPage() {
                     getDraftState(token || undefined),
                     getConstants()
                 ]);
-                if (draft.active) setDraftState(draft);
+                if (draft.active) {
+                    setDraftState(draft);
+                    if (draft.lobby_link) setLobbyLink(draft.lobby_link);
+                }
                 setConstants(consts);
             } catch {
                 // No active draft
@@ -127,6 +132,7 @@ export default function CaptainPage() {
 
             // Update the preview draft state
             setDraftState(currentDraft);
+            if (currentDraft.lobby_link) setLobbyLink(currentDraft.lobby_link);
 
             const state = await getCaptainState(session.captain_name);
             const anyReroll = state.all_votes?.some((v: { vote: string }) => v.vote === 'Reroll');
@@ -167,9 +173,10 @@ export default function CaptainPage() {
                 const draft = await getDraftState(token || undefined);
                 if (draft.active) {
                     setDraftState(draft);
+                    if (draft.lobby_link) setLobbyLink(draft.lobby_link);
                 } else {
                     setDraftState(null);
-                    setSession(null); // Ensure session is cleared if draft goes away
+                    setSession(null);
                 }
             } catch { /* ignore */ }
         }, 3000);
@@ -239,13 +246,14 @@ export default function CaptainPage() {
         try {
             const draft = session.draft;
             const maps = draft.map_pick || session.veto?.picked?.join(',') || '';
+            const link = lobbyLink || draft.lobby_link || '';
             await broadcastToDiscord({
                 name_a: draft.name_a,
                 team1: draft.team1,
                 name_b: draft.name_b,
                 team2: draft.team2,
                 maps,
-                lobby_link: '',
+                lobby_link: link,
             }, token || undefined);
         } catch (e: unknown) {
             setError(e instanceof Error ? e.message : 'Failed to send to Discord');
@@ -487,38 +495,54 @@ export default function CaptainPage() {
 
                 {/* ─── PHASE 3: VETO COMPLETE / MAPS SELECTED ─── */}
                 {vetoComplete && (
-                    <div className="lobby-box" style={{ marginBottom: 32 }}>
-                        <div className="lobby-box-title">🗺️ MAPS SELECTED</div>
-                        <div style={{ display: 'flex', justifyContent: 'center', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
-                            {finalMaps.map((m, i) => (
-                                <div key={m} style={{ textAlign: 'center' }}>
-                                    <div style={{ fontSize: 12, fontWeight: 700, color: i < 2 ? 'var(--neon-green)' : 'var(--gold)', marginBottom: 4 }}>
-                                        {i < 2 ? `MAP ${i + 1}` : 'DECIDER'}
+                    <>
+                        <div className="lobby-box" style={{ marginBottom: 24 }}>
+                            <div className="lobby-box-title">🗺️ MAPS SELECTED</div>
+                            <div style={{ display: 'flex', justifyContent: 'center', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
+                                {finalMaps.map((m, i) => (
+                                    <div key={m} style={{ textAlign: 'center' }}>
+                                        <div style={{ fontSize: 12, fontWeight: 700, color: i < 2 ? 'var(--neon-green)' : 'var(--gold)', marginBottom: 4 }}>
+                                            {i < 2 ? `MAP ${i + 1}` : 'DECIDER'}
+                                        </div>
+                                        <img src={constants.map_logos[m]} alt={m} style={{ width: 140, borderRadius: 8 }} />
+                                        <div className="font-orbitron" style={{ fontSize: 14, fontWeight: 700, marginTop: 4 }}>{m}</div>
                                     </div>
-                                    <img src={constants.map_logos[m]} alt={m} style={{ width: 140, borderRadius: 8 }} />
-                                    <div className="font-orbitron" style={{ fontSize: 14, fontWeight: 700, marginTop: 4 }}>{m}</div>
-                                </div>
-                            ))}
+                                ))}
+                            </div>
                         </div>
 
-                        {/* Discord button for admin */}
-                        {isAdmin && (
-                            <div style={{ textAlign: 'center', marginTop: 20 }}>
-                                <button
-                                    className="btn btn-primary"
-                                    onClick={handleBroadcast}
-                                    disabled={broadcasting}
-                                    style={{ fontSize: 16, padding: '12px 32px' }}
-                                >
-                                    {broadcasting ? '⏳ Sending...' : '📢 Send to Discord'}
-                                </button>
+                        {/* Lobby link — shown once available */}
+                        {lobbyLink ? (
+                            <div className="lobby-box" style={{ marginBottom: 24 }}>
+                                <div className="lobby-box-title">🚀 LOBBY READY</div>
+                                <p style={{ textAlign: 'center', color: 'var(--text-primary)', marginBottom: 16, fontSize: 18, fontWeight: 600 }}>
+                                    ⚠️ EVERYONE JOIN THE SERVER NOW ⚠️
+                                </p>
+                                <div className="lobby-box-link">
+                                    <a href={lobbyLink} target="_blank" rel="noopener noreferrer">{lobbyLink}</a>
+                                </div>
+                                <div className="lobby-box-password">🔑 Password: kimkim</div>
+                                <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+                                    <a href={lobbyLink} target="_blank" rel="noopener noreferrer" className="btn btn-primary">JOIN SERVER</a>
+                                    {isAdmin && (
+                                        <button className="btn btn-primary" onClick={handleBroadcast} disabled={broadcasting}>
+                                            {broadcasting ? '⏳ Sending...' : '📢 Send to Discord'}
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        ) : (
+                            <div style={{ textAlign: 'center', marginBottom: 24 }}>
+                                <div className="spinner" style={{ margin: '0 auto 12px' }} />
+                                <p style={{ color: 'var(--text-secondary)', fontSize: 14 }}>⏳ Creating lobby...</p>
+                                {isAdmin && (
+                                    <button className="btn btn-primary" onClick={handleBroadcast} disabled={broadcasting} style={{ marginTop: 16 }}>
+                                        {broadcasting ? '⏳ Sending...' : '📢 Send to Discord'}
+                                    </button>
+                                )}
                             </div>
                         )}
-
-                        {!isAdmin && (
-                            <p style={{ color: 'var(--text-secondary)', marginTop: 16, textAlign: 'center' }}>🎮 Get ready to play!</p>
-                        )}
-                    </div>
+                    </>
                 )}
             </div>
         );
