@@ -54,6 +54,7 @@ export default function MixerPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [lobbyLink, setLobbyLink] = useState('');
+  const [creatingLobby, setCreatingLobby] = useState(false);
   const [bannedMaps, setBannedMaps] = useState<string[]>([]);
   const [skeezTitle, setSkeezTitle] = useState('');
   const [viewingPlayer, setViewingPlayer] = useState<string | null>(null);
@@ -207,11 +208,14 @@ export default function MixerPage() {
   };
 
   const handleCreateLobby = async () => {
+    setCreatingLobby(true);
     try {
       const res = await createLobby();
       setLobbyLink(res.link);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Lobby creation failed');
+    } finally {
+      setCreatingLobby(false);
     }
   };
 
@@ -387,14 +391,21 @@ export default function MixerPage() {
               <a href={lobbyLink} target="_blank" rel="noopener noreferrer">{lobbyLink}</a>
             </div>
             <div className="lobby-box-password">🔑 Password: kimkim</div>
-            <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
               <a href={lobbyLink} target="_blank" rel="noopener noreferrer" className="btn btn-primary">JOIN SERVER</a>
+              {(user?.role === 'admin' || (draft.created_by && user?.display_name === draft.created_by)) && (
+                <button className="btn" onClick={handleCreateLobby} disabled={creatingLobby}>
+                  {creatingLobby ? '⏳ Creating...' : '🔄 New Lobby'}
+                </button>
+              )}
             </div>
           </div>
         ) : (
           (user?.role === 'admin' || (draft.created_by && user?.display_name === draft.created_by)) && (
             <div style={{ textAlign: 'center', marginBottom: 24 }}>
-              <button className="btn" onClick={handleCreateLobby}>🔧 Create Cybershoke Lobby</button>
+              <button className="btn" onClick={handleCreateLobby} disabled={creatingLobby}>
+                {creatingLobby ? '⏳ Creating...' : '🔧 Create Cybershoke Lobby'}
+              </button>
             </div>
           )
         )}
