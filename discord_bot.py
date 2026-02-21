@@ -53,9 +53,12 @@ def send_full_match_info(name_a, t1_players, name_b, t2_players, maps, lobby_lin
     })
 
     # --- 3. THE SERVER LINK (The Finale) ---
-    server_text = "⚠️ Server link not generated yet."
+    server_text = "⚠️ **Server link not generated yet.**"
     if lobby_link:
-        server_text = f"🔑 Password: `kimkim`"
+        server_text = (
+            f"[🔗 JOIN LOBBY]({lobby_link})\n"
+            f"🔑 Password: `kimkim`"
+        )
 
     header_embed["fields"].append({
         "name": "🚀 JOIN THE SERVER",
@@ -63,10 +66,7 @@ def send_full_match_info(name_a, t1_players, name_b, t2_players, maps, lobby_lin
         "inline": False
     })
 
-    # Put the raw URL in message content so Discord auto-links it (embed fields don't auto-link)
-    content = f"🔗 **SERVER LINK:** {lobby_link}\n🔑 Password: `kimkim`" if lobby_link else ""
-
-    payload = {"content": content, "embeds": [header_embed]}
+    payload = {"embeds": [header_embed]}
     
     # --- 4. MAP IMAGES (Appended as small thumbnails) ---
     for m_name in map_list:
