@@ -14,7 +14,7 @@ from constants import PLAYERS_INIT
 
 SECRET_KEY = os.getenv("JWT_SECRET", "cs2-pro-balancer-secret-key-change-in-production")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_HOURS = 72
+ACCESS_TOKEN_EXPIRE_DAYS = 90
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)
@@ -41,7 +41,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=15)
+        expire = datetime.now(timezone.utc) + timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
     
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)

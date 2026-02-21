@@ -122,7 +122,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
 
     const login = (newToken: string, userData: User) => {
-        Cookies.set("token", newToken, { expires: 3 }); // 3 days
+        Cookies.set("token", newToken, { expires: 90 }); // 90 days
         setToken(newToken);
         axios.defaults.headers.common["Authorization"] = `Bearer ${newToken}`;
         setUser(userData);

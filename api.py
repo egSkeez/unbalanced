@@ -311,7 +311,8 @@ async def login_for_access_token(req: LoginRequest, db: AsyncSession = Depends(g
         await db.commit()
 
         access_token = create_access_token(
-            data={"sub": user.username, "role": user.role, "display_name": user.display_name}
+            data={"sub": user.username, "role": user.role, "display_name": user.display_name},
+            expires_delta=datetime.timedelta(days=90),
         )
         return {"access_token": access_token, "token_type": "bearer"}
     except HTTPException:
