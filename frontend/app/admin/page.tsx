@@ -4,7 +4,8 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import {
     getPlayers, createPlayer, updatePlayer, deletePlayer,
-    getLobbyHistory, analyzeLobby, getRoommates, setRoommates, clearDraft,
+    getLobbyHistory, analyzeLobby, lobbyQuickCheck, importLobbyFull,
+    getRoommates, setRoommates, clearDraft,
     getUsers, updateUserRole, deleteUser, syncPlayers,
     adminCreateUser, adminUpdateUser, adminResetPassword, adminUpdateScores,
 } from '../lib/api';
@@ -62,6 +63,13 @@ export default function AdminPage() {
     const [passwordDialog, setPasswordDialog] = useState<{ userId: string; displayName: string } | null>(null);
     const [newPassword, setNewPassword] = useState('');
 
+    // Lobby import state
+    const [lobbyInput, setLobbyInput] = useState('');
+    const [lobbyPreview, setLobbyPreview] = useState<Record<string, unknown> | null>(null);
+    const [lobbyImportResult, setLobbyImportResult] = useState<Record<string, unknown> | null>(null);
+    const [lobbyChecking, setLobbyChecking] = useState(false);
+    const [lobbyImporting, setLobbyImporting] = useState(false);
+
     const didLoad = useRef(false);
 
     useEffect(() => {
@@ -109,6 +117,46 @@ export default function AdminPage() {
             setStatus(`❌ ${e instanceof Error ? e.message : 'Analysis failed'}`);
         }
         setAnalyzing(null);
+    };
+
+    const extractLobbyId = (input: string): string => {
+        const m = input.match(/\/match\/(\d+)/);
+        return m ? m[1] : input.trim();
+    };
+
+    const handleLobbyCheck = async () => {
+        if (!lobbyInput.trim() || !token) return;
+        setLobbyChecking(true);
+        setLobbyPreview(null);
+        setLobbyImportResult(null);
+        setStatus('');
+        try {
+            const id = extractLobbyId(lobbyInput);
+            const res = await lobbyQuickCheck(id, token);
+            setLobbyPreview(res);
+        } catch (e: unknown) {
+            setStatus(`❌ Check failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+        }
+        setLobbyChecking(false);
+    };
+
+    const handleLobbyImport = async () => {
+        if (!lobbyInput.trim() || !token) return;
+        setLobbyImporting(true);
+        setLobbyImportResult(null);
+        setStatus('');
+        try {
+            const id = extractLobbyId(lobbyInput);
+            const res = await importLobbyFull({ lobby_id: id, admin_name: 'Skeez' }, token);
+            setLobbyImportResult(res);
+            setLobbyPreview(null);
+            setStatus(`✅ Imported: ${res.map} — ${res.score}`);
+            const updated = await getLobbyHistory();
+            setLobbies(updated);
+        } catch (e: unknown) {
+            setStatus(`❌ Import failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+        }
+        setLobbyImporting(false);
     };
 
     const handleSavePlayer = async (name: string) => {
@@ -888,42 +936,192 @@ export default function AdminPage() {
 
             {/* ══════════════ LOBBIES TAB ══════════════ */}
             {tab === 'lobbies' && (
-                <div className="card">
-                    <div className="card-header">Lobby History</div>
-                    <div style={{ overflowX: 'auto' }}>
-                        <table className="data-table" style={{ width: '100%' }}>
-                            <thead>
-                                <tr><th>Lobby ID</th><th>Created</th><th>Status</th><th>Demo</th><th>Action</th></tr>
-                            </thead>
-                            <tbody>
-                                {lobbies.map(l => (
-                                    <tr key={String(l.lobby_id)}>
-                                        <td className="font-orbitron" style={{ fontSize: '0.8rem' }}>{String(l.lobby_id)}</td>
-                                        <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{String(l.created_at || '').split('.')[0]}</td>
-                                        <td>
-                                            <span className={`badge ${l.analysis_status === 'analyzed' ? 'badge-win' : 'badge-draw'}`}>
-                                                {String(l.analysis_status || 'pending')}
-                                            </span>
-                                        </td>
-                                        <td>{Number(l.has_demo) === 1 ? '✅' : Number(l.has_demo) === -1 ? '❌' : '⏳'}</td>
-                                        <td>
-                                            {l.analysis_status !== 'analyzed' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+
+                    {/* ── Import Panel ── */}
+                    <div className="card">
+                        <div className="card-header">Import Cybershoke Match</div>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 16 }}>
+                            Paste a Cybershoke match URL or bare match ID. <strong>Check</strong> fetches live stats instantly from the API. <strong>Import with Demo</strong> downloads the .dem file, runs the Go parser, reconciles with web stats, and saves everything to the database.
+                        </p>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                            <input
+                                type="text"
+                                placeholder="https://cybershoke.net/match/1234567  or  1234567"
+                                value={lobbyInput}
+                                onChange={e => { setLobbyInput(e.target.value); setLobbyPreview(null); setLobbyImportResult(null); }}
+                                onKeyDown={e => e.key === 'Enter' && handleLobbyCheck()}
+                                style={{ flex: 1, minWidth: 280, background: '#111', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px', color: '#fff', fontSize: 14 }}
+                            />
+                            <button className="btn btn-sm" onClick={handleLobbyCheck} disabled={lobbyChecking || !lobbyInput.trim()}>
+                                {lobbyChecking ? '⏳ Checking…' : '🔍 Check'}
+                            </button>
+                            <button
+                                className="btn btn-primary btn-sm"
+                                onClick={handleLobbyImport}
+                                disabled={lobbyImporting || !lobbyInput.trim()}
+                                title="Download demo → parse → reconcile → save"
+                            >
+                                {lobbyImporting ? '⏳ Importing…' : '📥 Import with Demo'}
+                            </button>
+                        </div>
+
+                        {/* Quick-check preview */}
+                        {lobbyPreview && !lobbyImportResult && (() => {
+                            const p = lobbyPreview as {
+                                lobby_id: string; map_name: string; score: string;
+                                finished: boolean; already_analyzed: boolean;
+                                players: Array<{ name: string; team: number; kills: number; deaths: number; assists: number; headshots: number }>;
+                            };
+                            const team2 = p.players?.filter(x => x.team === 2) ?? [];
+                            const team3 = p.players?.filter(x => x.team === 3) ?? [];
+                            return (
+                                <div style={{ marginTop: 20 }}>
+                                    <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+                                        <span className="font-orbitron" style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Match #{p.lobby_id}</span>
+                                        <span className="badge badge-win">{p.map_name}</span>
+                                        <span className="font-orbitron" style={{ fontSize: 18, color: '#fff' }}>{p.score}</span>
+                                        <span className={`badge ${p.finished ? 'badge-win' : 'badge-draw'}`}>{p.finished ? 'Finished' : 'Live / Pending'}</span>
+                                        {p.already_analyzed && <span className="badge" style={{ background: 'var(--orange)', color: '#000' }}>Already in DB</span>}
+                                    </div>
+                                    <div className="grid-2" style={{ gap: 12 }}>
+                                        {[{ label: '🔵 Team A', players: team2 }, { label: '🔴 Team B', players: team3 }].map(({ label, players }) => (
+                                            <div key={label}>
+                                                <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>{label}</div>
+                                                <table className="data-table" style={{ width: '100%', fontSize: 12 }}>
+                                                    <thead><tr><th>Player</th><th>K</th><th>D</th><th>A</th><th>HS</th></tr></thead>
+                                                    <tbody>
+                                                        {players.sort((a, b) => b.kills - a.kills).map(pl => (
+                                                            <tr key={pl.name}>
+                                                                <td>{pl.name}</td>
+                                                                <td>{pl.kills}</td><td>{pl.deaths}</td><td>{pl.assists}</td><td>{pl.headshots}</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    {!p.already_analyzed && p.finished && (
+                                        <div style={{ marginTop: 12 }}>
+                                            <button className="btn btn-primary btn-sm" onClick={handleLobbyImport} disabled={lobbyImporting}>
+                                                {lobbyImporting ? '⏳ Importing…' : '📥 Import with Demo'}
+                                            </button>
+                                            <span style={{ marginLeft: 10, fontSize: 12, color: 'var(--text-muted)' }}>Download + parse .dem, reconcile stats, and save to DB</span>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })()}
+
+                        {/* Import result */}
+                        {lobbyImportResult && (() => {
+                            const r = lobbyImportResult as {
+                                lobby_id: string; map: string; score: string;
+                                steps: string[];
+                                players: Array<{ name: string; kills: number; deaths: number; assists: number; adr: number; kd: number; hs_pct: number }>;
+                            };
+                            return (
+                                <div style={{ marginTop: 20 }}>
+                                    <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+                                        <span className="badge badge-win">✅ Imported</span>
+                                        <span className="badge badge-win">{r.map}</span>
+                                        <span className="font-orbitron" style={{ fontSize: 18, color: '#fff' }}>{r.score}</span>
+                                    </div>
+                                    {/* Pipeline steps */}
+                                    <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                        {r.steps.map((s, i) => (
+                                            <div key={i} style={{ fontSize: 12, color: 'var(--text-muted)' }}>✔ {s}</div>
+                                        ))}
+                                    </div>
+                                    {/* Final player stats */}
+                                    <table className="data-table" style={{ width: '100%', fontSize: 12 }}>
+                                        <thead><tr><th>Player</th><th>K</th><th>D</th><th>A</th><th>K/D</th><th>ADR</th><th>HS%</th></tr></thead>
+                                        <tbody>
+                                            {r.players.sort((a, b) => b.kills - a.kills).map(pl => (
+                                                <tr key={pl.name}>
+                                                    <td>{pl.name}</td>
+                                                    <td>{pl.kills}</td><td>{pl.deaths}</td><td>{pl.assists}</td>
+                                                    <td className="font-orbitron">{pl.kd}</td>
+                                                    <td>{pl.adr}</td>
+                                                    <td>{pl.hs_pct}%</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            );
+                        })()}
+                    </div>
+
+                    {/* ── Lobby History ── */}
+                    <div className="card">
+                        <div className="card-header">Lobby History</div>
+                        <div style={{ overflowX: 'auto' }}>
+                            <table className="data-table" style={{ width: '100%' }}>
+                                <thead>
+                                    <tr><th>Lobby ID</th><th>Created</th><th>Status</th><th>Demo</th><th>Actions</th></tr>
+                                </thead>
+                                <tbody>
+                                    {lobbies.map(l => (
+                                        <tr key={String(l.lobby_id)}>
+                                            <td>
+                                                <a
+                                                    href={`https://cybershoke.net/match/${l.lobby_id}`}
+                                                    target="_blank" rel="noreferrer"
+                                                    className="font-orbitron"
+                                                    style={{ fontSize: '0.8rem', color: 'var(--blue)' }}
+                                                >
+                                                    {String(l.lobby_id)}
+                                                </a>
+                                            </td>
+                                            <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{String(l.created_at || '').split('.')[0]}</td>
+                                            <td>
+                                                <span className={`badge ${l.analysis_status === 'analyzed' ? 'badge-win' : l.analysis_status === 'error' ? 'badge-loss' : 'badge-draw'}`}>
+                                                    {String(l.analysis_status || 'pending')}
+                                                </span>
+                                            </td>
+                                            <td>{Number(l.has_demo) === 1 ? '✅' : Number(l.has_demo) === -1 ? '❌' : '⏳'}</td>
+                                            <td style={{ display: 'flex', gap: 6 }}>
                                                 <button
                                                     className="btn btn-sm"
-                                                    onClick={() => handleAnalyze(String(l.lobby_id))}
-                                                    disabled={analyzing === String(l.lobby_id)}
-                                                >
-                                                    {analyzing === String(l.lobby_id) ? '⏳' : '📊 Analyze'}
-                                                </button>
-                                            )}
-                                        </td>
-                                    </tr>
-                                ))}
-                                {lobbies.length === 0 && (
-                                    <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No lobbies tracked</td></tr>
-                                )}
-                            </tbody>
-                        </table>
+                                                    title="Quick-check live stats"
+                                                    onClick={async () => {
+                                                        const id = String(l.lobby_id);
+                                                        setLobbyInput(id);
+                                                        setLobbyPreview(null);
+                                                        setLobbyImportResult(null);
+                                                        setLobbyChecking(true);
+                                                        try {
+                                                            const res = await lobbyQuickCheck(id, token!);
+                                                            setLobbyPreview(res);
+                                                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                                                        } catch (e: unknown) {
+                                                            setStatus(`❌ ${e instanceof Error ? e.message : 'Check failed'}`);
+                                                        }
+                                                        setLobbyChecking(false);
+                                                    }}
+                                                    disabled={lobbyChecking}
+                                                >🔍</button>
+                                                {l.analysis_status !== 'analyzed' && (
+                                                    <button
+                                                        className="btn btn-sm"
+                                                        title="Analyze existing demo"
+                                                        onClick={() => handleAnalyze(String(l.lobby_id))}
+                                                        disabled={analyzing === String(l.lobby_id)}
+                                                    >
+                                                        {analyzing === String(l.lobby_id) ? '⏳' : '📊'}
+                                                    </button>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {lobbies.length === 0 && (
+                                        <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No lobbies tracked yet</td></tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             )}

@@ -230,6 +230,10 @@ class TournamentLobbyRequest(BaseModel):
 class SubmitLobbyRequest(BaseModel):
     lobby_url: str  # e.g. "https://cybershoke.net/match/3387473"
 
+class LobbyImportRequest(BaseModel):
+    lobby_id: str          # match ID or full URL
+    admin_name: str = "Skeez"
+
 # ──────────────────────────────────────────────
 # PING ENDPOINT
 # ──────────────────────────────────────────────
@@ -1746,6 +1750,148 @@ def analyze_lobby(lobby_id: str):
     finally:
         if os.path.exists(expected):
             os.remove(expected)
+
+# ──────────────────────────────────────────────
+# ADMIN — LOBBY QUICK CHECK
+# ──────────────────────────────────────────────
+
+def _extract_lobby_id(raw: str) -> str:
+    """Extract numeric match ID from a full Cybershoke URL or a bare ID string."""
+    import re
+    m = re.search(r"/match/(\d+)", raw)
+    return m.group(1) if m else raw.strip()
+
+@app.get("/api/admin/lobby-check/{lobby_id}")
+def lobby_quick_check(lobby_id: str, current_user: User = Depends(get_current_user)):
+    """Fetch live match data from the Cybershoke API. No demo download."""
+    if current_user.role != "admin":
+        raise HTTPException(403, "Admin only")
+    from cybershoke import get_lobby_match_result
+    lid = _extract_lobby_id(lobby_id)
+    result = get_lobby_match_result(lid)
+    if not result:
+        raise HTTPException(404, "Could not fetch match data from Cybershoke. Check the ID or cookies.")
+    result["lobby_id"] = lid
+    result["already_analyzed"] = is_lobby_already_analyzed(lid)
+    return result
+
+# ──────────────────────────────────────────────
+# ADMIN — FULL LOBBY IMPORT (demo + web stats)
+# ──────────────────────────────────────────────
+
+@app.post("/api/admin/import-lobby")
+def import_lobby_full(req: LobbyImportRequest, current_user: User = Depends(get_current_user)):
+    """
+    Full pipeline for a single Cybershoke match:
+      1. Download demo
+      2. Analyse demo with Go parser
+      3. Reconcile with Cybershoke web stats (K/D/A/HS correction + map/score override)
+      4. Save to database + mark lobby as analysed
+    Returns the final player stats so the admin can see the result immediately.
+    """
+    if current_user.role != "admin":
+        raise HTTPException(403, "Admin only")
+
+    from demo_download import download_demo
+    from demo_analysis import analyze_demo_file
+    from cybershoke import get_lobby_player_stats
+
+    lobby_id = _extract_lobby_id(req.lobby_id)
+
+    if is_lobby_already_analyzed(lobby_id):
+        raise HTTPException(409, f"Lobby {lobby_id} is already in the database")
+
+    steps: list[str] = []
+
+    # ── Step 1: Download demo ──────────────────────────────────────────────
+    success, msg = download_demo(str(lobby_id), req.admin_name)
+    if not success:
+        add_lobby(lobby_id)
+        update_lobby_status(lobby_id, has_demo=-1, status="error")
+        raise HTTPException(500, f"Demo download failed: {msg}")
+    steps.append(f"Demo downloaded — {msg}")
+
+    expected = f"demos/match_{lobby_id}.dem"
+    if not os.path.exists(expected):
+        raise HTTPException(500, "Demo file missing after download")
+
+    # ── Step 2: Analyse demo ───────────────────────────────────────────────
+    try:
+        score_res, stats_res, map_name, score_t, score_ct = analyze_demo_file(expected)
+    except Exception as e:
+        update_lobby_status(lobby_id, status="error")
+        raise HTTPException(500, f"Demo analysis error: {e}")
+    finally:
+        if os.path.exists(expected):
+            os.remove(expected)
+
+    if stats_res is None:
+        update_lobby_status(lobby_id, status="error")
+        raise HTTPException(500, f"Demo analysis returned no data: {score_res}")
+
+    steps.append(f"Demo analysed — {score_res} on {map_name}")
+
+    # ── Step 3: Reconcile with Cybershoke web stats ────────────────────────
+    try:
+        web_stats, web_score, web_map = get_lobby_player_stats(lobby_id)
+        if web_stats:
+            if web_score and web_score != "Unknown":
+                score_res = web_score
+                try:
+                    parts = web_score.split("-")
+                    score_t = int(parts[0].strip())
+                    score_ct = int(parts[1].strip())
+                except Exception:
+                    pass
+            if web_map and web_map != "Unknown":
+                map_name = web_map
+
+            changes = 0
+            for idx, row in stats_res.iterrows():
+                p_name = row["Player"]
+                if p_name in web_stats:
+                    w = web_stats[p_name]
+                    stats_res.at[idx, "Kills"] = w["kills"]
+                    stats_res.at[idx, "Deaths"] = w["deaths"]
+                    stats_res.at[idx, "Assists"] = w["assists"]
+                    stats_res.at[idx, "Headshots"] = w["headshots"]
+                    k, d, hs = w["kills"], w["deaths"], w["headshots"]
+                    stats_res.at[idx, "K/D"] = round(k / d, 2) if d > 0 else float(k)
+                    stats_res.at[idx, "HS%"] = round(hs / k * 100, 1) if k > 0 else 0.0
+                    changes += 1
+            steps.append(f"Reconciled {changes}/{len(stats_res)} players with web data")
+        else:
+            steps.append("Web reconciliation skipped — no web data available")
+    except Exception as e:
+        steps.append(f"Web reconciliation warning: {e}")
+
+    # ── Step 4: Save to database ───────────────────────────────────────────
+    mid = f"match_{lobby_id}"
+    save_match_stats(mid, str(lobby_id), score_res, stats_res, map_name, score_t, score_ct)
+    add_lobby(lobby_id)
+    update_lobby_status(lobby_id, has_demo=1, status="analyzed")
+    steps.append("Saved to database")
+
+    players_out = []
+    for _, row in stats_res.iterrows():
+        players_out.append({
+            "name":    str(row.get("Player", "")),
+            "kills":   int(row.get("Kills", 0)),
+            "deaths":  int(row.get("Deaths", 0)),
+            "assists": int(row.get("Assists", 0)),
+            "adr":     round(float(row.get("ADR", 0)), 1),
+            "kd":      round(float(row.get("K/D", 0)), 2),
+            "hs_pct":  round(float(row.get("HS%", 0)), 1),
+        })
+
+    return {
+        "status":   "ok",
+        "lobby_id": lobby_id,
+        "map":      map_name,
+        "score":    score_res,
+        "players":  players_out,
+        "steps":    steps,
+    }
 
 # ──────────────────────────────────────────────
 # ADMIN — ROOMMATES

@@ -122,6 +122,20 @@ export const updateLobbyStatus = (id: string, has_demo?: number, status?: string
 };
 export const analyzeLobby = (id: string) => fetchApi(`/api/admin/analyze/${id}`, { method: 'POST' });
 
+/** Fetch live match data from Cybershoke API (no demo download, instant). */
+export const lobbyQuickCheck = (lobbyId: string, token: string) =>
+    fetchApi(`/api/admin/lobby-check/${encodeURIComponent(lobbyId)}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+    });
+
+/** Full pipeline: download demo → analyse → reconcile web stats → save to DB. */
+export const importLobbyFull = (data: { lobby_id: string; admin_name?: string }, token: string) =>
+    fetchApi('/api/admin/import-lobby', {
+        method: 'POST',
+        body: JSON.stringify(data),
+        headers: { 'Authorization': `Bearer ${token}` },
+    });
+
 // Roommates
 export const getRoommates = () => fetchApi('/api/roommates');
 export const setRoommates = (groups: string[][]) =>
