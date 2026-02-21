@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Cookies from 'js-cookie';
 import { useAuth } from '@/context/AuthContext';
-import { getPlayers, runDraft, getDraftState, rerollDraft, clearDraft, getConstants, initVeto, getVetoState, vetoAction, getLobby, createLobby, broadcastToDiscord } from './lib/api';
+import { getPlayers, runDraft, getDraftState, rerollDraft, clearDraft, getConstants, initVeto, resetVeto, getVetoState, vetoAction, getLobby, createLobby, broadcastToDiscord } from './lib/api';
 import PlayerStatsModal from '@/components/PlayerStatsModal';
 import { getPingColor } from '@/lib/utils';
 
@@ -159,6 +159,36 @@ export default function MixerPage() {
     setLoading(false);
   };
 
+  const handleRerollPlayers = async () => {
+    if (!draft) return;
+    setLoading(true);
+    try {
+      const activeToken = token || Cookies.get('token');
+      const result = await rerollDraft({
+        current_players: [...draft.team1, ...draft.team2],
+        mode: draft.mode,
+        keep_map: true,
+      }, activeToken);
+      setDraft({ active: true, ...result, map_pick: result.map_pick || draft.map_pick });
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Reroll failed');
+    }
+    setLoading(false);
+  };
+
+  const handleRerollMaps = async () => {
+    if (!draft) return;
+    try {
+      const activeToken = token || Cookies.get('token');
+      await resetVeto(activeToken);
+      setVeto(null);
+      setDraft(prev => prev ? { ...prev, map_pick: undefined } : prev);
+      setBannedMaps([]);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Map reset failed');
+    }
+  };
+
   const handleClear = async () => {
     const activeToken = token || Cookies.get('token');
     if (activeToken) await clearDraft(activeToken);
@@ -185,8 +215,12 @@ export default function MixerPage() {
       if (result.complete) {
         setVeto({ initialized: true, remaining: [], protected: result.final_maps, complete: true });
         setBannedMaps([]);
+        if (result.lobby_link) setLobbyLink(result.lobby_link);
         const d = await getDraftState();
-        if (d.active) setDraft(d);
+        if (d.active) {
+          setDraft(d);
+          if (d.lobby_link) setLobbyLink(d.lobby_link);
+        }
       } else {
         setBannedMaps(prev => {
           if (result.remaining && constants.map_pool) {
@@ -230,7 +264,9 @@ export default function MixerPage() {
         maps: draft.map_pick || '',
         lobby_link: lobbyLink,
       }, token || undefined);
-    } catch { /* ignore */ }
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Broadcast failed');
+    }
   };
 
   if (loading || authLoading) {
@@ -412,8 +448,18 @@ export default function MixerPage() {
 
         {/* Admin controls */}
         <div className="divider" />
-        <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+        <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
           <button className="btn" onClick={handleReroll}>🔀 Reroll Teams</button>
+          {(user?.role === 'admin' || (draft.created_by && user?.display_name === draft.created_by)) && (
+            <>
+              <button className="btn" onClick={handleRerollPlayers} title="Reshuffle players, keep the current maps">
+                👥 Reroll Players
+              </button>
+              <button className="btn" onClick={handleRerollMaps} title="Redo the map veto, keep the current teams">
+                🗺️ Reroll Maps
+              </button>
+            </>
+          )}
           <button className="btn btn-danger" onClick={handleClear}>🗑️ Clear Draft</button>
 
           {(user?.role === 'admin' || (draft.created_by && user?.display_name === draft.created_by)) && lobbyLink && (

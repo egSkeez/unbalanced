@@ -134,6 +134,7 @@ class RerollRequest(BaseModel):
     current_players: List[str]
     mode: str = "balanced"
     force_captains: Optional[List[str]] = None
+    keep_map: bool = False
 
 class VetoActionRequest(BaseModel):
     map_name: str
@@ -928,14 +929,21 @@ async def reroll_draft(req: RerollRequest, current_user: User = Depends(get_curr
     # Preserve team names from current state
     saved = load_draft_state()
     original_creator = None
+    existing_map = None
     if saved:
         n_a, n_b = saved[2], saved[3]
+        existing_map = saved[6]
         if len(saved) > 10:
             original_creator = saved[10]
     else:
         n_a, n_b = random.sample(TEAM_NAMES, 2)
 
     save_draft_state(t1, t2, n_a, n_b, a1, a2, mode=req.mode, created_by=original_creator)
+
+    # Restore map if keep_map requested
+    if req.keep_map and existing_map:
+        update_draft_map(existing_map)
+
     init_empty_captains()
     
     # 2. Apply Captain Rules
@@ -962,7 +970,8 @@ async def reroll_draft(req: RerollRequest, current_user: User = Depends(get_curr
         "name_a": n_a, "name_b": n_b,
         "avg1": a1, "avg2": a2, "gap": gap,
         "captain1": None, "captain2": None,
-        "mode": req.mode
+        "mode": req.mode,
+        "map_pick": existing_map if req.keep_map else None
     }
 
 @app.post("/api/draft/step_in")
@@ -1035,6 +1044,18 @@ def veto_init():
     winner = random.choice([n_a, n_b])
     init_veto_state(MAP_POOL.copy(), winner)
     return {"winner": winner, "maps": MAP_POOL}
+
+@app.post("/api/veto/reset")
+def veto_reset(current_user: User = Depends(get_current_user)):
+    """Clear veto state and map pick, keeping teams intact."""
+    if current_user.role != "admin":
+        saved = load_draft_state()
+        if not saved or saved[10] != current_user.display_name:
+            raise HTTPException(403, "Only the admin or draft creator can reset the veto")
+    with sync_engine.begin() as conn:
+        conn.execute(sa_text("DELETE FROM active_veto_state"))
+        conn.execute(sa_text("UPDATE active_draft_state SET current_map = NULL WHERE id = 1"))
+    return {"status": "ok"}
 
 @app.post("/api/veto/action")
 def veto_action(req: VetoActionRequest):
@@ -1624,8 +1645,10 @@ def set_lobby(link: str = Query(...)):
 
 @app.post("/api/discord/broadcast")
 def broadcast(req: BroadcastRequest, current_user: User = Depends(get_current_user)):
-    if current_user.role != "admin":
-        raise HTTPException(403, "Only admins can broadcast to Discord")
+    saved = load_draft_state()
+    is_creator = saved and saved[10] == current_user.display_name
+    if current_user.role != "admin" and not is_creator:
+        raise HTTPException(403, "Only the admin or draft creator can broadcast to Discord")
     maps = req.maps.split(",") if isinstance(req.maps, str) else req.maps
     send_full_match_info(req.name_a, req.team1, req.name_b, req.team2, maps, req.lobby_link)
     return {"status": "ok"}

@@ -38,7 +38,7 @@ export const getDraftState = (token?: string) =>
     fetchApi('/api/draft/state', token ? { headers: { 'Authorization': `Bearer ${token}` } } : undefined);
 export const stepInAsCaptain = (token: string) =>
     fetchApi('/api/draft/step_in', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
-export const rerollDraft = (data: { current_players: string[]; mode: string; force_captains?: string[] }, token?: string) =>
+export const rerollDraft = (data: { current_players: string[]; mode: string; force_captains?: string[]; keep_map?: boolean }, token?: string) =>
     fetchApi('/api/draft/reroll', {
         method: 'POST',
         body: JSON.stringify(data),
@@ -55,6 +55,8 @@ export const updateElo = (data: { team1: string[]; team2: string[]; name_a: stri
 // Veto
 export const getVetoState = () => fetchApi('/api/veto/state');
 export const initVeto = () => fetchApi('/api/veto/init', { method: 'POST' });
+export const resetVeto = (token?: string) =>
+    fetchApi('/api/veto/reset', { method: 'POST', headers: token ? { 'Authorization': `Bearer ${token}` } : undefined });
 export const vetoAction = (data: { map_name: string; acting_team: string }) =>
     fetchApi('/api/veto/action', { method: 'POST', body: JSON.stringify(data) });
 
