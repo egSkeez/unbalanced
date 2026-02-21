@@ -779,16 +779,31 @@ async def run_draft(req: DraftRequest, current_user: Optional[User] = Depends(ge
     else:
         metric = "overall"
 
-    # Determine top 2 to force split
     col_name = "avg_rating" if metric == "hltv" else metric
     score_map = dict(zip(player_df['name'], player_df[col_name].fillna(0)))
     sorted_players = sorted(req.selected_players, key=lambda x: score_map.get(x, 0), reverse=True)
-    force_split = [sorted_players[0], sorted_players[1]]
 
     roommates = get_roommates()
-    all_combos = get_best_combinations(req.selected_players, force_split=force_split, force_together=roommates, metric=metric)
 
-    ridx = 0 if req.mode in ["balanced", "kd_balanced", "hltv_balanced"] else random.randint(1, min(50, len(all_combos) - 1))
+    if req.mode == "pro_balanced":
+        # Force-split top 4 as two pairs so each team gets one of the top 2
+        # and one of the next two, then also penalise uneven within-team spread.
+        force_split_pairs = [
+            (sorted_players[0], sorted_players[1]),
+            (sorted_players[2], sorted_players[3]),
+        ]
+        all_combos = get_best_combinations(
+            req.selected_players,
+            force_split_pairs=force_split_pairs,
+            force_together=roommates,
+            metric=metric,
+            variance_weight=1.0,
+        )
+    else:
+        force_split = [sorted_players[0], sorted_players[1]]
+        all_combos = get_best_combinations(req.selected_players, force_split=force_split, force_together=roommates, metric=metric)
+
+    ridx = 0 if req.mode in ["balanced", "kd_balanced", "hltv_balanced", "pro_balanced"] else random.randint(1, min(50, len(all_combos) - 1))
     t1, t2, a1, a2, gap = all_combos[ridx]
     n_a, n_b = random.sample(TEAM_NAMES, 2)
 
@@ -919,11 +934,15 @@ async def reroll_draft(req: RerollRequest, current_user: User = Depends(get_curr
         metric = "overall"
 
     roommates = get_roommates()
-    # If force_captains passed, respect it? 
-    # The prompt says: keep other captain. 
-    # force_split logic in get_best_combinations helps separate strong players.
-    
-    all_combos = get_best_combinations(req.current_players, force_split=[], force_together=roommates, metric=metric)
+
+    if req.mode == "pro_balanced":
+        score_map_r = dict(zip(player_df['name'], player_df[metric].fillna(0)))
+        sorted_r = sorted(req.current_players, key=lambda x: score_map_r.get(x, 0), reverse=True)
+        force_split_pairs_r = [(sorted_r[0], sorted_r[1]), (sorted_r[2], sorted_r[3])]
+        all_combos = get_best_combinations(req.current_players, force_split_pairs=force_split_pairs_r, force_together=roommates, metric=metric, variance_weight=1.0)
+    else:
+        all_combos = get_best_combinations(req.current_players, force_split=[], force_together=roommates, metric=metric)
+
     ridx = random.randint(1, min(50, len(all_combos) - 1))
     t1, t2, a1, a2, gap = all_combos[ridx]
 
@@ -1150,7 +1169,13 @@ def submit_captain_vote(req: VoteRequest):
                 metric = "overall"
 
             roommates = get_roommates()
-            all_combos = get_best_combinations(all_players, force_split=[], force_together=roommates, metric=metric)
+            if mode == "pro_balanced":
+                score_map_v = dict(zip(player_df['name'], player_df[metric].fillna(0)))
+                sorted_v = sorted(all_players, key=lambda x: score_map_v.get(x, 0), reverse=True)
+                fsp_v = [(sorted_v[0], sorted_v[1]), (sorted_v[2], sorted_v[3])]
+                all_combos = get_best_combinations(all_players, force_split_pairs=fsp_v, force_together=roommates, metric=metric, variance_weight=1.0)
+            else:
+                all_combos = get_best_combinations(all_players, force_split=[], force_together=roommates, metric=metric)
             ridx = random.randint(1, min(50, len(all_combos) - 1))
             t1, t2, a1, a2, gap = all_combos[ridx]
 

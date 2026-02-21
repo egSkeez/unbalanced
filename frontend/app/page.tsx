@@ -488,6 +488,7 @@ export default function MixerPage() {
         <span style={{ fontWeight: 600, color: 'var(--text-secondary)', fontSize: 13 }}>BALANCE MODE:</span>
         {[
           { key: 'balanced', label: '⚖️ Balanced', desc: 'Rating-based' },
+          { key: 'pro_balanced', label: '⚡ Pro Balanced', desc: 'Top-4 split + even spread' },
           { key: 'kd_balanced', label: '🎯 K/D', desc: 'Kill/Death ratio' },
           { key: 'hltv_balanced', label: '📈 HLTV', desc: 'HLTV Rating' },
           { key: 'chaos', label: '🎲 Chaos', desc: 'Random!' },
