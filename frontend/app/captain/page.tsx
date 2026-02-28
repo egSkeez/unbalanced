@@ -336,6 +336,9 @@ export default function CaptainPage() {
                     <div>
                         <h1 className="page-title">👑 {session.captain_name}</h1>
                         <p className="page-subtitle">Captain of <span style={{ color: myColor, fontWeight: 700 }}>{myTeamName}</span></p>
+                        <p style={{ fontSize: 12, fontWeight: 600, color: (draft.rerolls_remaining ?? 3) > 0 ? 'var(--gold)' : 'var(--red)', marginTop: 4 }}>
+                            🎲 {draft.rerolls_remaining ?? 3} Reroll{((draft.rerolls_remaining ?? 3) === 1) ? '' : 's'} Remaining
+                        </p>
                     </div>
                     <button className="btn btn-sm" onClick={() => setSession(null)}>← Leave</button>
                 </div>
@@ -398,9 +401,9 @@ export default function CaptainPage() {
                         {otherCaptain && (
                             <div style={{ marginBottom: 20, padding: '8px 16px', background: 'var(--bg-glass)', borderRadius: 'var(--radius-md)', display: 'inline-block' }}>
                                 {otherCaptain.vote === 'Waiting' ? (
-                                    <span style={{ color: 'var(--text-muted)' }}>⏳ {otherCaptain.captain_name} hasn&apos;t voted yet</span>
+                                    <span style={{ color: 'var(--text-muted)' }}>⏳ The other captain hasn&apos;t voted yet</span>
                                 ) : otherCaptain.vote === 'Approve' ? (
-                                    <span className="text-neon">✅ {otherCaptain.captain_name} approved</span>
+                                    <span className="text-neon">✅ The other captain approved</span>
                                 ) : (
                                     <span style={{ color: 'var(--red)' }}>❌ A reroll has been requested</span>
                                 )}
@@ -430,7 +433,7 @@ export default function CaptainPage() {
                         <div style={{ fontSize: 40, marginBottom: 12 }}>✅</div>
                         <h3 className="font-orbitron text-neon" style={{ marginBottom: 8 }}>YOU APPROVED</h3>
                         <p style={{ color: 'var(--text-secondary)' }}>
-                            ⏳ Waiting for <strong>{otherCaptain?.captain_name}</strong> to approve...
+                            ⏳ Waiting for the other captain to approve...
                         </p>
                         <div className="spinner" style={{ margin: '16px auto' }} />
                     </div>

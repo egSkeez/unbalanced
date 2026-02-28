@@ -1285,13 +1285,22 @@ def captain_claim(req: CaptainLoginRequest):
     if not row:
         raise HTTPException(500, "Failed to retrieve captain state after claim")
 
+    rc = get_draft_reroll_count()
+    rerolls_remaining = max(0, 3 - rc)
     draft_data = {
         "team1": t1, "team2": t2, "name_a": n_a, "name_b": n_b,
         "avg1": a1, "avg2": a2, "map_pick": db_map,
+        "rerolls_remaining": rerolls_remaining,
     }
 
     votes_df = get_vote_status()
     votes = df_to_records(votes_df) if not votes_df.empty else []
+    # Anonymize captain names: each captain only sees their own name
+    for v in votes:
+        if v.get("captain_name") and v["captain_name"] != name:
+            v["captain_name"] = "Other Captain"
+        if "pin" in v:
+            v["pin"] = None
 
     rem, picked, turn_team = get_veto_state()
     veto_data = None
@@ -1330,14 +1339,23 @@ def captain_state(name: str = Query(...)):
     draft_data = None
     if saved:
         t1, t2, n_a, n_b, a1, a2, db_map, lobby, mid, mode, created_by = saved
+        rc = get_draft_reroll_count()
+        rerolls_remaining = max(0, 3 - rc)
         draft_data = {
             "team1": t1, "team2": t2, "name_a": n_a, "name_b": n_b,
             "avg1": a1, "avg2": a2, "map_pick": db_map,
+            "rerolls_remaining": rerolls_remaining,
         }
 
     # Get both votes
     votes_df = get_vote_status()
     votes = df_to_records(votes_df) if not votes_df.empty else []
+    # Anonymize captain names: each captain only sees their own name
+    for v in votes:
+        if v.get("captain_name") and v["captain_name"] != name:
+            v["captain_name"] = "Other Captain"
+        if "pin" in v:
+            v["pin"] = None
 
     # Get veto state
     rem, picked, turn_team = get_veto_state()
@@ -1377,7 +1395,28 @@ def captain_info(token: str):
     draft_data = None
     if saved:
         t1, t2, n_a, n_b, *_ = saved
-        draft_data = {"team1": t1, "team2": t2, "name_a": n_a, "name_b": n_b}
+        rc = get_draft_reroll_count()
+        rerolls_remaining = max(0, 3 - rc)
+
+        # Get ratings for player sort
+        stats_df = get_player_stats()
+        ratings = {pn: float(ovr) for pn, ovr in zip(stats_df['name'], stats_df['overall'].fillna(0))}
+
+        # Get all votes (anonymized)
+        votes_df = get_vote_status()
+        all_votes = df_to_records(votes_df) if not votes_df.empty else []
+        for v in all_votes:
+            if v.get("captain_name") and v["captain_name"] != row[0]:
+                v["captain_name"] = "Other Captain"
+            if "pin" in v:
+                v["pin"] = None
+
+        draft_data = {
+            "team1": t1, "team2": t2, "name_a": n_a, "name_b": n_b,
+            "rerolls_remaining": rerolls_remaining,
+            "ratings": ratings,
+            "votes": all_votes,
+        }
 
     return {
         "captain_name": row[0],

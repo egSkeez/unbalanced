@@ -289,6 +289,9 @@ export default function MixerPage() {
         <div className="page-header">
           <h1 className="page-title">⚔️ Teams Drafted</h1>
           <p className="page-subtitle">Mode: {(draft.mode || 'balanced').replace('_', ' ').toUpperCase()}</p>
+          <p style={{ fontSize: 13, fontWeight: 600, color: (draft.rerolls_remaining ?? 3) > 0 ? 'var(--gold)' : 'var(--red)', marginTop: 4 }}>
+            🎲 {draft.rerolls_remaining ?? 3} Reroll{((draft.rerolls_remaining ?? 3) === 1) ? '' : 's'} Remaining
+          </p>
         </div>
 
         {error && <div className="error-message">{error}</div>}
