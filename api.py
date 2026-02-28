@@ -41,7 +41,7 @@ def _is_postgres():
 
 from database import (
     init_db, init_async_db, get_player_stats, save_draft_state, load_draft_state,
-    clear_draft_state, get_roommates, set_roommates,
+    clear_draft_state, get_roommates, set_roommates, get_draft_reroll_count,
     init_veto_state, get_veto_state, update_veto_turn, update_draft_map,
     get_vote_status, set_draft_pins, submit_vote, update_elo,
     init_empty_captains, claim_captain_spot,
@@ -835,12 +835,8 @@ def get_draft_state_endpoint(current_user: Optional[User] = Depends(get_current_
     if not saved:
         return {"active": False}
     
-    # Check if this is the new 12-element tuple
-    if len(saved) >= 12:
-        t1, t2, n_a, n_b, a1, a2, db_map, db_lobby, cs_mid, mode, created_by, rc = saved[:12]
-    else:
-        t1, t2, n_a, n_b, a1, a2, db_map, db_lobby, cs_mid, mode, created_by = saved[:11]
-        rc = 0
+    t1, t2, n_a, n_b, a1, a2, db_map, db_lobby, cs_mid, mode, created_by = saved[:11]
+    rc = get_draft_reroll_count()
 
     rerolls_remaining = max(0, 3 - rc)
     is_admin = current_user.role == "admin" if current_user else False
@@ -967,8 +963,7 @@ async def reroll_draft(req: RerollRequest, current_user: User = Depends(get_curr
         existing_map = saved[6]
         if len(saved) > 10:
             original_creator = saved[10]
-        if len(saved) >= 12:
-            reroll_count = saved[11] if saved[11] is not None else 0
+        reroll_count = get_draft_reroll_count()
     else:
         n_a, n_b = random.sample(TEAM_NAMES, 2)
 

@@ -164,15 +164,19 @@ def update_draft_map(map_data):
 
 def load_draft_state():
     with sync_engine.connect() as conn:
-        # Columns: t1, t2, na, nb, a1, a2, map, lobby, cs_id, mode, created_by, rc
-        row = conn.execute(text("SELECT t1_json, t2_json, name_a, name_b, avg1, avg2, current_map, current_lobby, cybershoke_match_id, draft_mode, created_by, reroll_count FROM active_draft_state WHERE id=1")).fetchone()
+        # Columns: t1, t2, na, nb, a1, a2, map, lobby, cs_id, mode, created_by
+        row = conn.execute(text("SELECT t1_json, t2_json, name_a, name_b, avg1, avg2, current_map, current_lobby, cybershoke_match_id, draft_mode, created_by FROM active_draft_state WHERE id=1")).fetchone()
         
     if row:
         # Tuple unpacking depends on query order
         # row is a result proxy row, access by index or name
-        rc = row[11] if len(row) > 11 and row[11] is not None else 0
-        return (json.loads(row[0]), json.loads(row[1]), row[2], row[3], row[4], row[5], row[6], row[7], row[8], row[9], row[10] if row[10] else None, rc)
+        return (json.loads(row[0]), json.loads(row[1]), row[2], row[3], row[4], row[5], row[6], row[7], row[8], row[9], row[10] if row[10] else None)
     return None
+
+def get_draft_reroll_count():
+    with sync_engine.connect() as conn:
+        row = conn.execute(text("SELECT reroll_count FROM active_draft_state WHERE id=1")).fetchone()
+    return row[0] if row and row[0] is not None else 0
 
 def clear_draft_state():
     with sync_engine.begin() as conn:
