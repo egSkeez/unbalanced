@@ -94,7 +94,7 @@ export const getMatchScoreboard = (matchId: string) => fetchApi(`/api/matches/${
 
 // Lobby
 export const getLobby = () => fetchApi('/api/lobby');
-export const createLobby = (adminName: string = 'Skeez') =>
+export const createLobby = (adminName: string) =>
     fetchApi('/api/lobby/create', { method: 'POST', body: JSON.stringify({ admin_name: adminName }) });
 export const deleteLobby = () => fetchApi('/api/lobby', { method: 'DELETE' });
 

@@ -245,7 +245,9 @@ export default function MixerPage() {
   const handleCreateLobby = async () => {
     setCreatingLobby(true);
     try {
-      const res = await createLobby();
+      // Use the draft creator's name — they should have the matching Cybershoke account
+      const adminName = draft?.created_by || user?.display_name || 'Skeez';
+      const res = await createLobby(adminName);
       setLobbyLink(res.link);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Lobby creation failed');
