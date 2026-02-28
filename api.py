@@ -829,7 +829,7 @@ async def run_draft(req: DraftRequest, current_user: Optional[User] = Depends(ge
         "ratings": ratings,
     }
 
-@app.get("/api/draft")
+@app.get("/api/draft/state")
 def get_draft_state_endpoint(current_user: Optional[User] = Depends(get_current_user_optional)):
     saved = load_draft_state()
     if not saved:
