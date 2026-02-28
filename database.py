@@ -84,7 +84,7 @@ def init_db():
                      (id INTEGER PRIMARY KEY, t1_json TEXT, t2_json TEXT, 
                       name_a TEXT, name_b TEXT, avg1 REAL, avg2 REAL, 
                       current_map TEXT, current_lobby TEXT, cybershoke_match_id TEXT, 
-                      draft_mode TEXT, created_by TEXT)"""))
+                      draft_mode TEXT, created_by TEXT, reroll_count INTEGER DEFAULT 0)"""))
         
         # Veto state
         conn.execute(text(f"""CREATE TABLE IF NOT EXISTS active_veto_state 
@@ -146,34 +146,16 @@ def set_roommates(players_list):
 
 
 # --- DRAFT STATE FUNCTIONS ---
-def save_draft_state(t1, t2, name_a, name_b, avg1, avg2, mode="balanced", created_by=None):
+def save_draft_state(t1, t2, name_a, name_b, avg1, avg2, mode="balanced", created_by=None, reroll_count=0):
     with sync_engine.begin() as conn:
         conn.execute(text("DELETE FROM active_draft_state"))
         
-        sql = """INSERT INTO active_draft_state 
-                 (id, t1_json, t2_json, name_a, name_b, avg1, avg2, current_map, current_lobby, cybershoke_match_id, draft_mode, created_by) 
-                 VALUES (1, :t1, :t2, :na, :nb, :a1, :a2, NULL, NULL, :mode, :mode, :cb)"""
-        # Note: cybershoke_match_id was passed 'mode' in original code? 
-        # Original: (..., mode, created_by) mapped to ..., cybershoke_match_id, draft_mode, created_by??
-        # Original vals: (..., mode, created_by) -> 
-        # VALUES (..., ?, ?, ?, ?) -> current_lobby, cybershoke_match_id, draft_mode, created_by
-        # The variables passed were: (..., None, None, mode, created_by)
-        # Re-reading original:
-        # VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)" -> 12 items including '1'. 11 placeholders.
-        # Params supplied: 11 items. Matches.
-        # Params: t1, t2, na, nb, a1, a2, None, None, None, mode, created_by
-        # Col 8: current_map (None)
-        # Col 9: current_lobby (None)
-        # Col 10: cybershoke_match_id (None)
-        # Col 11: draft_mode (mode)
-        # Col 12: created_by (created_by)
-        
         # My replacement:
         conn.execute(text("""INSERT INTO active_draft_state 
-                             (id, t1_json, t2_json, name_a, name_b, avg1, avg2, current_map, current_lobby, cybershoke_match_id, draft_mode, created_by) 
-                             VALUES (1, :t1, :t2, :na, :nb, :a1, :a2, NULL, NULL, NULL, :mode, :cb)"""),
+                             (id, t1_json, t2_json, name_a, name_b, avg1, avg2, current_map, current_lobby, cybershoke_match_id, draft_mode, created_by, reroll_count) 
+                             VALUES (1, :t1, :t2, :na, :nb, :a1, :a2, NULL, NULL, NULL, :mode, :cb, :rc)"""),
                       {"t1": json.dumps(t1), "t2": json.dumps(t2), "na": name_a, "nb": name_b, 
-                       "a1": avg1, "a2": avg2, "mode": mode, "cb": created_by})
+                       "a1": avg1, "a2": avg2, "mode": mode, "cb": created_by, "rc": reroll_count})
 
 def update_draft_map(map_data):
     val = ",".join(map_data) if isinstance(map_data, list) else map_data
@@ -182,13 +164,14 @@ def update_draft_map(map_data):
 
 def load_draft_state():
     with sync_engine.connect() as conn:
-        # Columns: t1, t2, na, nb, a1, a2, map, lobby, cs_id, mode, created_by
-        row = conn.execute(text("SELECT t1_json, t2_json, name_a, name_b, avg1, avg2, current_map, current_lobby, cybershoke_match_id, draft_mode, created_by FROM active_draft_state WHERE id=1")).fetchone()
+        # Columns: t1, t2, na, nb, a1, a2, map, lobby, cs_id, mode, created_by, rc
+        row = conn.execute(text("SELECT t1_json, t2_json, name_a, name_b, avg1, avg2, current_map, current_lobby, cybershoke_match_id, draft_mode, created_by, reroll_count FROM active_draft_state WHERE id=1")).fetchone()
         
     if row:
         # Tuple unpacking depends on query order
         # row is a result proxy row, access by index or name
-        return (json.loads(row[0]), json.loads(row[1]), row[2], row[3], row[4], row[5], row[6], row[7], row[8], row[9], row[10] if row[10] else None)
+        rc = row[11] if len(row) > 11 and row[11] is not None else 0
+        return (json.loads(row[0]), json.loads(row[1]), row[2], row[3], row[4], row[5], row[6], row[7], row[8], row[9], row[10] if row[10] else None, rc)
     return None
 
 def clear_draft_state():

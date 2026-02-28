@@ -94,6 +94,7 @@ async def lifespan(app: FastAPI):
             ("tournament_participants", "checked_in", "BOOLEAN DEFAULT FALSE"),
             ("tournament_matches", "group_id", "INTEGER"),
             ("tournament_matches", "score", "TEXT"),
+            ("active_draft_state", "reroll_count", "INTEGER DEFAULT 0"),
         ]
         for table, col, col_type in migration_cols:
             try:
@@ -828,22 +829,26 @@ async def run_draft(req: DraftRequest, current_user: Optional[User] = Depends(ge
         "ratings": ratings,
     }
 
-@app.get("/api/draft/state")
-async def get_draft_state(current_user: Optional[User] = Depends(get_current_user_optional)):
+@app.get("/api/draft")
+def get_draft_state_endpoint(current_user: Optional[User] = Depends(get_current_user_optional)):
     saved = load_draft_state()
     if not saved:
         return {"active": False}
+    
+    # Check if this is the new 12-element tuple
+    if len(saved) >= 12:
+        t1, t2, n_a, n_b, a1, a2, db_map, db_lobby, cs_mid, mode, created_by, rc = saved[:12]
+    else:
+        t1, t2, n_a, n_b, a1, a2, db_map, db_lobby, cs_mid, mode, created_by = saved[:11]
+        rc = 0
 
-    t1, t2, n_a, n_b, a1, a2, db_map, lobby, mid, mode, created_by = saved
+    rerolls_remaining = max(0, 3 - rc)
+    is_admin = current_user.role == "admin" if current_user else False
+    username = current_user.display_name if current_user else None
+
+    # Get voting status
     votes = get_vote_status()
     
-    # Determine user role
-    is_admin = False
-    username = None
-    if current_user:
-        is_admin = current_user.role == "admin"
-        username = current_user.display_name # Using display_name for comparison with captain_name
-
     vote_data = []
     if not votes.empty:
         records = votes.to_dict('records')
@@ -867,14 +872,13 @@ async def get_draft_state(current_user: Optional[User] = Depends(get_current_use
             r["team_idx"] = team_idx
 
             # Masking logic
-            role_to_show = r["vote"]
+            # role_to_show = r["vote"] # This line was in the original, but unused. Removed.
 
             if name.startswith("__TEAM"):
                 # Placeholder - show as is (frontend handles it)
                 pass 
             elif is_admin:
                 # Admin sees all
-                pass
                 pass
             elif username and name == username:
                 # User sees themselves
@@ -911,6 +915,7 @@ async def get_draft_state(current_user: Optional[User] = Depends(get_current_use
         "ratings": ratings,
         "pings": pings,
         "created_by": created_by,
+        "rerolls_remaining": rerolls_remaining,
     }
 
 @app.post("/api/draft/reroll")
@@ -956,15 +961,19 @@ async def reroll_draft(req: RerollRequest, current_user: User = Depends(get_curr
     saved = load_draft_state()
     original_creator = None
     existing_map = None
+    reroll_count = 0
     if saved:
         n_a, n_b = saved[2], saved[3]
         existing_map = saved[6]
         if len(saved) > 10:
             original_creator = saved[10]
+        if len(saved) >= 12:
+            reroll_count = saved[11] if saved[11] is not None else 0
     else:
         n_a, n_b = random.sample(TEAM_NAMES, 2)
 
-    save_draft_state(t1, t2, n_a, n_b, a1, a2, mode=req.mode, created_by=original_creator)
+    new_reroll_count = reroll_count + 1
+    save_draft_state(t1, t2, n_a, n_b, a1, a2, mode=req.mode, created_by=original_creator, reroll_count=new_reroll_count)
 
     # Restore map if keep_map requested
     if req.keep_map and existing_map:
@@ -1000,6 +1009,7 @@ async def reroll_draft(req: RerollRequest, current_user: User = Depends(get_curr
         "mode": req.mode,
         "map_pick": existing_map if req.keep_map else None,
         "ratings": ratings,
+        "rerolls_remaining": max(0, 3 - new_reroll_count),
     }
 
 @app.post("/api/draft/step_in")

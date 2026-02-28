@@ -19,6 +19,7 @@ interface DraftInfo {
     mode?: string;
     ratings?: Record<string, number>;
     pings?: Record<string, number>;
+    rerolls_remaining?: number;
 }
 
 interface VetoInfo {
@@ -389,7 +390,7 @@ export default function CaptainPage() {
                                 ) : otherCaptain.vote === 'Approve' ? (
                                     <span className="text-neon">✅ {otherCaptain.captain_name} approved</span>
                                 ) : (
-                                    <span style={{ color: 'var(--red)' }}>❌ {otherCaptain.captain_name} wants a reroll</span>
+                                    <span style={{ color: 'var(--red)' }}>❌ A reroll has been requested</span>
                                 )}
                             </div>
                         )}
@@ -398,9 +399,15 @@ export default function CaptainPage() {
                             <button className="btn btn-primary btn-block" onClick={() => handleVote('Approve')} disabled={actionLoading} style={{ minHeight: 56, fontSize: 16 }}>
                                 ✅ APPROVE
                             </button>
-                            <button className="btn btn-danger btn-block" onClick={() => handleVote('Reroll')} disabled={actionLoading} style={{ minHeight: 56, fontSize: 16 }}>
-                                ❌ REROLL
-                            </button>
+                            {(draft.rerolls_remaining ?? 3) > 0 ? (
+                                <button className="btn btn-danger btn-block" onClick={() => handleVote('Reroll')} disabled={actionLoading} style={{ minHeight: 56, fontSize: 16 }}>
+                                    ❌ REROLL ({draft.rerolls_remaining ?? 3} LEFT)
+                                </button>
+                            ) : (
+                                <button className="btn btn-danger btn-block" disabled={true} style={{ minHeight: 56, fontSize: 16, opacity: 0.5 }}>
+                                    ❌ 0 REROLLS LEFT
+                                </button>
+                            )}
                         </div>
                     </div>
                 )}
@@ -423,6 +430,9 @@ export default function CaptainPage() {
                         <div style={{ fontSize: 40, marginBottom: 12 }}>🔄</div>
                         <h3 className="font-orbitron" style={{ color: 'var(--red)', marginBottom: 8 }}>REROLLING...</h3>
                         <p style={{ color: 'var(--text-secondary)' }}>New teams are being generated. You&apos;ll need to step in again.</p>
+                        <p style={{ margin: '8px 0 0 0', fontWeight: 700, color: 'var(--gold)' }}>
+                            {draft.rerolls_remaining ?? 3} Reroll{((draft.rerolls_remaining ?? 3) === 1) ? '' : 's'} Remaining
+                        </p>
                         <div className="spinner" style={{ margin: '16px auto' }} />
                     </div>
                 )}

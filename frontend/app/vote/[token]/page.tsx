@@ -8,7 +8,7 @@ export default function VotePage({ params }: { params: Promise<{ token: string }
     const token = resolvedParams.token;
     const [captainName, setCaptainName] = useState('');
     const [currentVote, setCurrentVote] = useState('');
-    const [draft, setDraft] = useState<{ team1: string[]; team2: string[]; name_a: string; name_b: string; ratings?: Record<string, number>; votes?: Array<{ vote: string }> } | null>(null);
+    const [draft, setDraft] = useState<{ team1: string[]; team2: string[]; name_a: string; name_b: string; ratings?: Record<string, number>; votes?: Array<{ vote: string }>; rerolls_remaining?: number } | null>(null);
     const [veto, setVeto] = useState<{ initialized: boolean; remaining?: string[]; protected?: string[]; turn_team?: string; complete?: boolean }>({ initialized: false });
     const [mapLogos, setMapLogos] = useState<Record<string, string>>({});
     const [mapPick, setMapPick] = useState('');
@@ -111,6 +111,9 @@ export default function VotePage({ params }: { params: Promise<{ token: string }
                     <span style={{ fontSize: 18 }}>🎲</span>
                     <div style={{ fontSize: 13 }}>
                         <strong>REROLL IN PROGRESS</strong>
+                        <p style={{ margin: '4px 0 0 0', fontWeight: 700, color: 'var(--gold)' }}>
+                            {draft?.rerolls_remaining ?? 3} Reroll{((draft?.rerolls_remaining ?? 3) === 1) ? '' : 's'} Remaining
+                        </p>
                     </div>
                 </div>
             )}
@@ -160,7 +163,11 @@ export default function VotePage({ params }: { params: Promise<{ token: string }
             {currentVote === 'Waiting' && (
                 <div style={{ display: 'flex', gap: 12, marginBottom: 24 }}>
                     <button className="btn btn-primary" onClick={() => handleVote('Approve')} style={{ flex: 1, padding: 16 }}>✅ Approve</button>
-                    <button className="btn btn-secondary" onClick={() => handleVote('Reroll')} style={{ flex: 1, padding: 16, background: 'rgba(255,68,68,0.1)', color: 'var(--red)', borderColor: 'var(--red)' }}>🎲 Reroll</button>
+                    {(draft?.rerolls_remaining ?? 3) > 0 ? (
+                        <button className="btn btn-secondary" onClick={() => handleVote('Reroll')} style={{ flex: 1, padding: 16, background: 'rgba(255,68,68,0.1)', color: 'var(--red)', borderColor: 'var(--red)' }}>🎲 Reroll ({(draft?.rerolls_remaining ?? 3)} LEFT)</button>
+                    ) : (
+                        <button className="btn btn-secondary" disabled={true} style={{ flex: 1, padding: 16, background: 'rgba(255,68,68,0.1)', color: 'var(--red)', borderColor: 'var(--red)', opacity: 0.5 }}>❌ 0 REROLLS LEFT</button>
+                    )}
                 </div>
             )}
 

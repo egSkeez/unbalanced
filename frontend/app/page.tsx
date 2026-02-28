@@ -34,6 +34,7 @@ interface DraftState {
   created_by?: string;
   ratings?: Record<string, number>;
   pings?: Record<string, number>;
+  rerolls_remaining?: number;
 }
 
 interface VetoState {
@@ -311,6 +312,9 @@ export default function MixerPage() {
             <div>
               <strong>REROLL IN PROGRESS</strong>
               <p style={{ margin: 0, fontSize: 12, opacity: 0.8 }}>A captain has requested a reroll. Approvals are reset.</p>
+              <p style={{ margin: '4px 0 0 0', fontSize: 13, fontWeight: 700, color: 'var(--gold)' }}>
+                {draft.rerolls_remaining ?? 3} Reroll{((draft.rerolls_remaining ?? 3) === 1) ? '' : 's'} Remaining
+              </p>
             </div>
           </div>
         )}
