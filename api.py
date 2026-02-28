@@ -1174,6 +1174,15 @@ def submit_captain_vote(req: VoteRequest):
             all_players = t1_old + t2_old
             player_df = get_player_stats()
 
+            # Fetch and increment the reroll count
+            reroll_count = get_draft_reroll_count()
+            new_reroll_count = reroll_count + 1
+
+            if new_reroll_count > 3:
+                # Hard cap reached: auto-accept the current draft, reset votes only
+                init_empty_captains()
+                return {"status": "ok", "rerolled": False, "forced_accept": True, "rerolls_remaining": 0}
+
             if mode == "kd_balanced":
                 metric = "avg_kd"
             elif mode == "hltv_balanced":
@@ -1192,10 +1201,10 @@ def submit_captain_vote(req: VoteRequest):
             ridx = random.randint(1, min(50, len(all_combos) - 1))
             t1, t2, a1, a2, gap = all_combos[ridx]
 
-            save_draft_state(t1, t2, n_a, n_b, a1, a2, mode=mode, created_by=original_creator)
+            save_draft_state(t1, t2, n_a, n_b, a1, a2, mode=mode, created_by=original_creator, reroll_count=new_reroll_count)
             init_empty_captains()
 
-        return {"status": "ok", "rerolled": True}
+        return {"status": "ok", "rerolled": True, "rerolls_remaining": max(0, 3 - new_reroll_count)}
 
     if approve_count >= 2:
         rem, _, _ = get_veto_state()

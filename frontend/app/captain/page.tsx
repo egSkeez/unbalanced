@@ -207,8 +207,20 @@ export default function CaptainPage() {
         setActionLoading(true);
         setError('');
         try {
-            await submitVote({ token: session.pin, vote });
+            const response = await submitVote({ token: session.pin, vote });
             if (vote === 'Reroll') {
+                if (response?.forced_accept) {
+                    // Cap reached: draft auto-accepted, go straight to veto phase
+                    setError('⛔ No rerolls left — this draft has been accepted automatically!');
+                    try {
+                        const draft = await getDraftState(token || undefined);
+                        if (draft.active) setDraftState(draft);
+                        const state = await getCaptainState(session.captain_name);
+                        setSession(state);
+                    } catch { /* ignore */ }
+                    setActionLoading(false);
+                    return;
+                }
                 setTimeout(async () => {
                     setSession(null);
                     try {
