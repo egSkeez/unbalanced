@@ -6,6 +6,7 @@ import {
     getPlayers, createPlayer, updatePlayer, deletePlayer,
     getLobbyHistory, analyzeLobby, lobbyQuickCheck, importLobbyFull,
     getMapPool, addMapToPool, removeMapFromPool,
+    getCybershokeCookies, setCybershokeCookie, deleteCybershokeCookie, testCybershokeCookie,
     getRoommates, setRoommates, clearDraft,
     getUsers, updateUserRole, deleteUser, syncPlayers,
     adminCreateUser, adminUpdateUser, adminResetPassword, adminUpdateScores,
@@ -38,7 +39,7 @@ export default function AdminPage() {
     const { user, token, loading: authLoading } = useAuth();
     const router = useRouter();
 
-    const [tab, setTab] = useState<'players' | 'users' | 'lobbies' | 'maps' | 'roommates' | 'danger'>('players');
+    const [tab, setTab] = useState<'players' | 'users' | 'lobbies' | 'maps' | 'cookies' | 'roommates' | 'danger'>('players');
     const [players, setPlayers] = useState<Player[]>([]);
     const [registeredUsers, setRegisteredUsers] = useState<RegisteredUser[]>([]);
     const [lobbies, setLobbies] = useState<Array<Record<string, string | number>>>([]);
@@ -68,6 +69,13 @@ export default function AdminPage() {
     const [mapPool, setMapPool] = useState<Array<{ name: string; logo: string; position: number }>>([]);
     const [newMapName, setNewMapName] = useState('');
 
+    // Cybershoke cookies state
+    const [csCookies, setCsCookies] = useState<Array<{ admin_name: string; updated_at: string; multitoken_preview: string }>>([]);
+    const [cookieEditName, setCookieEditName] = useState('');
+    const [cookieEditValue, setCookieEditValue] = useState('');
+    const [cookieTesting, setCookieTesting] = useState<string | null>(null);
+    const [cookieTestResults, setCookieTestResults] = useState<Record<string, { valid: boolean; reason: string }>>({});
+
     // Lobby import state
     const [lobbyInput, setLobbyInput] = useState('');
     const [lobbyPreview, setLobbyPreview] = useState<Record<string, unknown> | null>(null);
@@ -88,15 +96,19 @@ export default function AdminPage() {
 
         setLoadingData(true);
         const promises: Promise<any>[] = [getPlayers(), getLobbyHistory(), getRoommates(), getMapPool()];
-        if (token) promises.push(getUsers(token));
+        if (token) {
+            promises.push(getUsers(token));
+            promises.push(getCybershokeCookies(token));
+        }
 
         Promise.all(promises)
-            .then(([p, l, r, mp, u]) => {
+            .then(([p, l, r, mp, u, ck]) => {
                 setPlayers(p);
                 setLobbies(l);
                 setRoommateGroups(r.groups || []);
                 setMapPool(mp || []);
                 if (u) setRegisteredUsers(u);
+                if (ck) setCsCookies(ck);
             })
             .catch(() => { setStatus('Failed to load admin data'); })
             .finally(() => setLoadingData(false));
@@ -123,6 +135,52 @@ export default function AdminPage() {
             setStatus(`❌ ${e instanceof Error ? e.message : 'Analysis failed'}`);
         }
         setAnalyzing(null);
+    };
+
+    const handleSaveCookie = async () => {
+        const name = cookieEditName.trim();
+        const value = cookieEditValue.trim();
+        if (!name || !value || !token) return;
+        try {
+            await setCybershokeCookie(name, value, token);
+            const updated = await getCybershokeCookies(token);
+            setCsCookies(updated);
+            setCookieEditName('');
+            setCookieEditValue('');
+            setStatus(`✅ Cookie saved for ${name}`);
+        } catch (e: unknown) {
+            setStatus(`❌ ${e instanceof Error ? e.message : 'Failed to save cookie'}`);
+        }
+    };
+
+    const handleDeleteCookie = async (name: string) => {
+        if (!token) return;
+        try {
+            await deleteCybershokeCookie(name, token);
+            const updated = await getCybershokeCookies(token);
+            setCsCookies(updated);
+            setStatus(`✅ Deleted cookie for ${name}`);
+        } catch (e: unknown) {
+            setStatus(`❌ ${e instanceof Error ? e.message : 'Failed to delete cookie'}`);
+        }
+    };
+
+    const handleTestCookie = async (name: string) => {
+        if (!token) return;
+        setCookieTesting(name);
+        try {
+            const res = await testCybershokeCookie(name, token);
+            setCookieTestResults(prev => ({ ...prev, [name]: res }));
+        } catch (e: unknown) {
+            setCookieTestResults(prev => ({ ...prev, [name]: { valid: false, reason: e instanceof Error ? e.message : 'Test failed' } }));
+        }
+        setCookieTesting(null);
+    };
+
+    const handleTestAllCookies = async () => {
+        for (const c of csCookies) {
+            await handleTestCookie(c.admin_name);
+        }
     };
 
     const handleAddMap = async () => {
@@ -426,6 +484,7 @@ export default function AdminPage() {
         { key: 'users' as const, icon: '🔑', label: 'Accounts', count: registeredUsers.length },
         { key: 'lobbies' as const, icon: '🏢', label: 'Lobbies', count: lobbies.length },
         { key: 'maps' as const, icon: '🗺️', label: 'Map Pool', count: mapPool.length },
+        { key: 'cookies' as const, icon: '🔑', label: 'Cybershoke', count: csCookies.length },
         { key: 'roommates' as const, icon: '🏠', label: 'Roommates', count: roommates.length },
         { key: 'danger' as const, icon: '⚠️', label: 'Danger Zone' },
     ];
@@ -1191,6 +1250,109 @@ export default function AdminPage() {
                             onKeyDown={e => e.key === 'Enter' && handleAddMap()}
                         />
                         <button className="btn btn-sm btn-primary" onClick={handleAddMap} disabled={!newMapName.trim()}>Add Map</button>
+                    </div>
+                </div>
+            )}
+
+            {/* ══════════════ CYBERSHOKE COOKIES TAB ══════════════ */}
+            {tab === 'cookies' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                    {/* Current cookies */}
+                    <div className="card">
+                        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>Cybershoke Session Cookies</span>
+                            <button className="btn btn-sm" onClick={handleTestAllCookies} disabled={cookieTesting !== null}>
+                                {cookieTesting ? '⏳ Testing…' : '🧪 Test All'}
+                            </button>
+                        </div>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 16 }}>
+                            Cybershoke authenticates via Steam login — cookies expire periodically. To update: log into <a href="https://cybershoke.net" target="_blank" rel="noreferrer" style={{ color: 'var(--blue)' }}>cybershoke.net</a> in your browser, open DevTools (F12) &gt; Application &gt; Cookies, copy the full cookie string, and paste it below.
+                        </p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+                            {csCookies.map(c => {
+                                const test = cookieTestResults[c.admin_name];
+                                return (
+                                    <div key={c.admin_name} className="player-chip" style={{ justifyContent: 'space-between', padding: '12px 16px', flexWrap: 'wrap', gap: 8 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                                            <span style={{ fontWeight: 700, fontSize: 14 }}>{c.admin_name}</span>
+                                            <span className="font-orbitron" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                                {c.multitoken_preview}
+                                            </span>
+                                            {test && (
+                                                <span className={`badge ${test.valid ? 'badge-win' : 'badge-loss'}`} style={{ fontSize: 11 }}>
+                                                    {test.valid ? '✅ Valid' : '❌ Expired'}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                                {c.updated_at ? `Updated ${c.updated_at.split('.')[0]}` : ''}
+                                            </span>
+                                            <button
+                                                className="btn btn-sm"
+                                                onClick={() => handleTestCookie(c.admin_name)}
+                                                disabled={cookieTesting === c.admin_name}
+                                                title="Test if cookie is still valid"
+                                            >
+                                                {cookieTesting === c.admin_name ? '⏳' : '🧪'}
+                                            </button>
+                                            <button
+                                                className="btn btn-sm"
+                                                onClick={() => { setCookieEditName(c.admin_name); setCookieEditValue(''); }}
+                                                title="Update cookie"
+                                            >
+                                                ✏️
+                                            </button>
+                                            <button
+                                                className="btn btn-sm btn-danger"
+                                                onClick={() => handleDeleteCookie(c.admin_name)}
+                                                title="Remove"
+                                            >
+                                                ✕
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                            {csCookies.length === 0 && <p style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No cookies stored</p>}
+                        </div>
+                    </div>
+
+                    {/* Add/Update form */}
+                    <div className="card">
+                        <div className="card-header">{cookieEditName ? `Update Cookie — ${cookieEditName}` : 'Add / Update Cookie'}</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            <input
+                                className="input"
+                                placeholder="Admin name (e.g. Skeez)"
+                                value={cookieEditName}
+                                onChange={e => setCookieEditName(e.target.value)}
+                                style={{ background: '#111', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px', color: '#fff', fontSize: 14 }}
+                            />
+                            <textarea
+                                placeholder="Paste full cookie string here…"
+                                value={cookieEditValue}
+                                onChange={e => setCookieEditValue(e.target.value)}
+                                rows={4}
+                                style={{
+                                    background: '#111', border: '1px solid var(--border)', borderRadius: 8,
+                                    padding: '10px 14px', color: '#fff', fontSize: 12, fontFamily: 'monospace',
+                                    resize: 'vertical',
+                                }}
+                            />
+                            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                                {cookieEditName && (
+                                    <button className="btn btn-sm" onClick={() => { setCookieEditName(''); setCookieEditValue(''); }}>Cancel</button>
+                                )}
+                                <button
+                                    className="btn btn-primary btn-sm"
+                                    onClick={handleSaveCookie}
+                                    disabled={!cookieEditName.trim() || !cookieEditValue.trim()}
+                                >
+                                    💾 Save Cookie
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}

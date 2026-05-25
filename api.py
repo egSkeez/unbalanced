@@ -60,7 +60,8 @@ from match_stats_db import (
 from logic import get_best_combinations, pick_captains, cycle_new_captain
 from cybershoke import (
     create_cybershoke_lobby_api, set_lobby_link, get_lobby_link, clear_lobby_link,
-    get_lobby_match_result,
+    get_lobby_match_result, init_cybershoke_cookies_table,
+    get_all_cookies_db, set_cookie_db, delete_cookie_db, test_cookie,
 )
 from discord_bot import send_full_match_info, send_lobby_to_discord
 from constants import TEAM_NAMES, MAP_POOL as _DEFAULT_MAP_POOL, MAP_LOGOS as _DEFAULT_MAP_LOGOS, SKEEZ_TITLES, PLAYERS_INIT
@@ -124,6 +125,7 @@ async def lifespan(app: FastAPI):
     init_db() # Legacy Sync
     init_match_stats_tables() # Legacy Sync
     _init_map_pool_table() # Map pool
+    init_cybershoke_cookies_table() # Cybershoke cookies
     check_and_migrate() # Legacy Sync
     await init_async_db() # New Async (creates all tables including tournaments)
     await init_user_accounts() # New Async
@@ -2048,6 +2050,52 @@ def admin_remove_map(map_name: str, current_user: User = Depends(get_current_use
         conn.execute(sa_text("DELETE FROM map_pool WHERE map_name = :name"), {"name": map_name})
     _invalidate_map_cache()
     return {"status": "ok"}
+
+# ──────────────────────────────────────────────
+# ADMIN — CYBERSHOKE COOKIES
+# ──────────────────────────────────────────────
+
+@app.get("/api/admin/cookies")
+def admin_get_cookies(current_user: User = Depends(get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(403, "Admin only")
+    db = get_all_cookies_db()
+    result = []
+    for name, info in db.items():
+        cookie = info["cookie_string"]
+        # Extract just the multitoken for display (don't expose full cookie in list view)
+        import re as _re
+        mt = _re.search(r"multitoken=([^;]+)", cookie)
+        multitoken_preview = (mt.group(1)[:12] + "…") if mt else "???"
+        result.append({
+            "admin_name": name,
+            "updated_at": info.get("updated_at", ""),
+            "multitoken_preview": multitoken_preview,
+        })
+    return result
+
+@app.put("/api/admin/cookies/{admin_name}")
+def admin_set_cookie(admin_name: str, data: dict, current_user: User = Depends(get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(403, "Admin only")
+    cookie_string = data.get("cookie_string", "").strip()
+    if not cookie_string:
+        raise HTTPException(400, "cookie_string is required")
+    set_cookie_db(admin_name, cookie_string)
+    return {"status": "ok"}
+
+@app.delete("/api/admin/cookies/{admin_name}")
+def admin_delete_cookie(admin_name: str, current_user: User = Depends(get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(403, "Admin only")
+    delete_cookie_db(admin_name)
+    return {"status": "ok"}
+
+@app.post("/api/admin/cookies/{admin_name}/test")
+def admin_test_cookie(admin_name: str, current_user: User = Depends(get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(403, "Admin only")
+    return test_cookie(admin_name)
 
 # ──────────────────────────────────────────────
 # ADMIN — ROOMMATES

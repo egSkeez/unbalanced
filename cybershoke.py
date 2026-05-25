@@ -2,21 +2,105 @@
 import requests
 import json
 import re
+import time as _time
 from database import sync_engine
 from sqlalchemy import text as sa_text
 
-# --- COOKIE REPOSITORY ---
-COOKIES = {
-    "Skeez": "ategories={}; showFull=false; hideFullAmong=false; sCategories={}; competitionsLeague=high; gMapFilerv=[]; gCategoryFiler=[]; glocationFilerNewv=[]; gSortFiler=online; gPrimeFiler=both; gSortShopFiler2=down; gCompetitionsDataStats=month; gCompetitionsDataId=12; gCompetitionsDataClass=low; gCompetitionsDataHalfmonth=0; gProfileSkinchangerFilterQ=%E2%98%85%20Karambit; gProfileSkinchangerFilterCollection=1; hideFullServers=true; gSkipPremiumModal=0; gServersPrimeMode=all; gHideFilledServers=1; lang_g=en; cookie_read=1; multitoken=7YV8DwPzGAGXlNBFM5ZIQGng991762105429993ouD8eCPqmRlZZ4WWXoCtz2vPmbLLw4kkBdGMaxach87Olkwr0Tx5W; multitoken_created=1; changer_update=1762379362; pinsFeatured=[]; ph_phc_PUoVkcukLD6bmHE3VxpSErcJlifbGlWTWgtiWllB7NA_posthog=%7B%22distinct_id%22%3A%2276561198294799864%22%2C%22%24sesid%22%3A%5Bnull%2Cnull%2Cnull%5D%2C%22%24epp%22%3Atrue%2C%22%24initial_person_info%22%3A%7B%22r%22%3A%22%24direct%22%2C%22u%22%3A%22https%3A%2F%2Fcybershoke.net%2Fmatch%2F3387473%22%7D%7D; ph_phc_rrPtSJqWrZYBNTKe0xXhqX06PeeesY7hSuVvVtrshEk_posthog=%7B%22distinct_id%22%3A%2276561198294799864%22%2C%22%24sesid%22%3A%5B1764023851069%2C%22019ab800-b1f9-7247-8b54-6c4dadca6f78%22%2C1764023644665%5D%2C%22%24epp%22%3Atrue%2C%22%24initial_person_info%22%3A%7B%22r%22%3A%22%24direct%22%2C%22u%22%3A%22https%3A%2F%2Fcybershoke.net%2Fmatch%2F3601759%22%7D%7D; view=grid; ph_phc_axKew8iO1uHqh7VyQ70xd8gwbda3IhtRbV5TG7xDu0I_posthog=%7B%22distinct_id%22%3A%2276561198294799864%22%2C%22%24sesid%22%3A%5B1765230599167%2C%22019affeb-902a-7488-b7a3-928c5b8c3923%22%2C1765230219300%5D%2C%22%24epp%22%3Atrue%2C%22%24initial_person_info%22%3A%7B%22r%22%3A%22%24direct%22%2C%22u%22%3A%22https%3A%2F%2Fcybershoke.net%2Fmatch%2F3742184%22%7D%7D; translation_unix=1767362692; pings_list={%22pings%22:{%22germany%22:17%2C%22warsaw%22:32%2C%22finland%22:39%2C%22sweden%22:41%2C%22lithuania%22:36%2C%22gb%22:23%2C%22france%22:7%2C%22kazakhstan%22:0%2C%22astana%22:0%2C%22turkey%22:46%2C%22new-york%22:0%2C%22chicago%22:98%2C%22dallas%22:0%2C%22los-angeles%22:0%2C%22moscow%22:0%2C%22yakutsk%22:0%2C%22kiev%22:40%2C%22georgia%22:0%2C%22singapore%22:0%2C%22mumbai%22:0%2C%22sydney%22:0%2C%22sao-paulo%22:0}%2C%22ip%22:%2291.166.107.158%22}; last_page=/matches",
-    
-    "Kim": "_ym_uid=1767725166389867440; _ym_d=1767725166; categories={}; showFull=false; hideFullAmong=false; sCategories={}; competitionsLeague=high; gMapFilerv=[]; gCategoryFiler=[]; glocationFilerNewv=[]; gSortFiler=online; gPrimeFiler=both; gSortShopFiler2=down; gCompetitionsDataStats=month; gCompetitionsDataId=12; gCompetitionsDataClass=low; gCompetitionsDataHalfmonth=0; gProfileSkinchangerFilterQ=%E2%98%85%20Karambit; gProfileSkinchangerFilterCollection=1; hideFullServers=true; gSkipPremiumModal=0; gServersPrimeMode=all; gHideFilledServers=1; _gid=GA1.2.405774975.1767725166; _gat_gtag_UA_132864474_3=1; _gat_UA-151937518-1=1; _gat_gtag_UA_151937518_1=1; lang_g=en; translation_unix=1767623559; _ym_isad=2; changer_update=1762379362; multitoken=t9HMMczcbjXbYVbPl7uBafZg2O1767725193343l1yXzqZULVne8FrN1mXDlE39EtzDoUiRL1VJj3qY1G8F0pkA53K13; multitoken_created=1; _ga_5676S8YGZK=GS2.1.s1767725165$o1$g1$t1767725193$j32$l0$h0; _ga=GA1.1.1937088403.1767725166; last_page=/matches; _ga_VLRBXFQ6V5=GS2.1.s1767725165$o1$g1$t1767725197$j28$l0$h0",
-    
-    "Magon": "_ym_uid=1767714178395001989; _ym_d=1767714178; categories={}; showFull=false; hideFullAmong=false; sCategories={}; competitionsLeague=high; gMapFilerv=[]; gCategoryFiler=[]; glocationFilerNewv=[]; gSortFiler=online; gPrimeFiler=both; gSortShopFiler2=down; gCompetitionsDataStats=month; gCompetitionsDataId=12; gCompetitionsDataClass=low; gCompetitionsDataHalfmonth=0; gProfileSkinchangerFilterQ=%E2%98%85%20Karambit; gProfileSkinchangerFilterCollection=1; hideFullServers=true; gSkipPremiumModal=0; gServersPrimeMode=all; gHideFilledServers=1; lang_g=en; translation_unix=1767623559; changer_update=1762379362; _gid=GA1.2.689440989.1767714179; multitoken=QuhNXivQITPL4kGFOpAF6jBDKs1767728352453lZX5YWWITp0XRsvUpraIRGKMGHDQHdDu3BCZuyN05GgCWBf6WhpJz; multitoken_created=1; cookie_read=1; _ym_isad=1; _gat_gtag_UA_132864474_3=1; _gat_UA-151937518-1=1; _gat_gtag_UA_151937518_1=1; _ga_5676S8YGZK=GS2.1.s1767817922$o5$g0$t1767817922$j60$l0$h0; _ga=GA1.1.2065653719.1767714178; last_page=/matches; _ga_VLRBXFQ6V5=GS2.1.s1767817921$o6$g1$t1767817926$j55$l0$h0; pings_list={%22pings%22:{%22germany%22:833%2C%22warsaw%22:1193%2C%22finland%22:0%2C%22sweden%22:0%2C%22lithuania%22:1192%2C%22gb%22:1209%2C%22france%22:0%2C%22kazakhstan%22:0%2C%22astana%22:0%2C%22turkey%22:1192%2C%22new-york%22:0%2C%22chicago%22:0%2C%22dallas%22:0%2C%22los-angeles%22:0%2C%22moscow%22:0%2C%22yakutsk%22:0%2C%22kiev%22:0%2C%22georgia%22:0%2C%22singapore%22:0%2C%22mumbai%22:0%2C%22sydney%22:0%2C%22sao-paulo%22:0}%2C%22ip%22:%22196.239.143.39%22}"
+# ── Cookie storage ────────────────────────────────────────────────────
+
+# Hardcoded fallback (used only if nothing in DB yet)
+_FALLBACK_COOKIES = {
+    "Skeez": "lang_g=en; cookie_read=1; multitoken=7YV8DwPzGAGXlNBFM5ZIQGng991762105429993ouD8eCPqmRlZZ4WWXoCtz2vPmbLLw4kkBdGMaxach87Olkwr0Tx5W; multitoken_created=1",
+    "Kim": "lang_g=en; multitoken=t9HMMczcbjXbYVbPl7uBafZg2O1767725193343l1yXzqZULVne8FrN1mXDlE39EtzDoUiRL1VJj3qY1G8F0pkA53K13; multitoken_created=1",
+    "Magon": "lang_g=en; multitoken=QuhNXivQITPL4kGFOpAF6jBDKs1767728352453lZX5YWWITp0XRsvUpraIRGKMGHDQHdDu3BCZuyN05GgCWBf6WhpJz; multitoken_created=1",
 }
 
+_cookie_cache: dict = {"data": None, "ts": 0.0}
+_COOKIE_CACHE_TTL = 120
+
+def init_cybershoke_cookies_table():
+    """Create DB table and seed with hardcoded fallbacks if empty."""
+    with sync_engine.begin() as conn:
+        conn.execute(sa_text("""
+            CREATE TABLE IF NOT EXISTS cybershoke_cookies (
+                admin_name TEXT PRIMARY KEY,
+                cookie_string TEXT NOT NULL,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        count = conn.execute(sa_text("SELECT COUNT(*) FROM cybershoke_cookies")).scalar()
+        if count == 0:
+            for name, cookie in _FALLBACK_COOKIES.items():
+                conn.execute(sa_text(
+                    "INSERT INTO cybershoke_cookies (admin_name, cookie_string) VALUES (:name, :cookie)"
+                ), {"name": name, "cookie": cookie})
+
+def get_all_cookies_db() -> dict[str, dict]:
+    """Return {name: {cookie_string, updated_at}} from DB, cached."""
+    now = _time.time()
+    if _cookie_cache["data"] is not None and now - _cookie_cache["ts"] < _COOKIE_CACHE_TTL:
+        return _cookie_cache["data"]
+    try:
+        with sync_engine.connect() as conn:
+            rows = conn.execute(sa_text("SELECT admin_name, cookie_string, updated_at FROM cybershoke_cookies")).fetchall()
+        result = {r[0]: {"cookie_string": r[1], "updated_at": r[2]} for r in rows}
+    except Exception:
+        result = {name: {"cookie_string": c, "updated_at": ""} for name, c in _FALLBACK_COOKIES.items()}
+    _cookie_cache["data"] = result
+    _cookie_cache["ts"] = now
+    return result
+
+def set_cookie_db(admin_name: str, cookie_string: str):
+    """Upsert a cookie and invalidate cache."""
+    with sync_engine.begin() as conn:
+        existing = conn.execute(sa_text("SELECT admin_name FROM cybershoke_cookies WHERE admin_name = :name"), {"name": admin_name}).fetchone()
+        if existing:
+            conn.execute(sa_text(
+                "UPDATE cybershoke_cookies SET cookie_string = :cookie, updated_at = CURRENT_TIMESTAMP WHERE admin_name = :name"
+            ), {"name": admin_name, "cookie": cookie_string})
+        else:
+            conn.execute(sa_text(
+                "INSERT INTO cybershoke_cookies (admin_name, cookie_string) VALUES (:name, :cookie)"
+            ), {"name": admin_name, "cookie": cookie_string})
+    _cookie_cache["data"] = None
+    _cookie_cache["ts"] = 0.0
+
+def delete_cookie_db(admin_name: str):
+    with sync_engine.begin() as conn:
+        conn.execute(sa_text("DELETE FROM cybershoke_cookies WHERE admin_name = :name"), {"name": admin_name})
+    _cookie_cache["data"] = None
+    _cookie_cache["ts"] = 0.0
+
+def _get_cookie_for(admin_name: str) -> str:
+    """Get cookie string for an admin, falling back through DB → hardcoded."""
+    db = get_all_cookies_db()
+    entry = db.get(admin_name) or db.get("Skeez")
+    if entry:
+        return entry["cookie_string"]
+    return _FALLBACK_COOKIES.get(admin_name, _FALLBACK_COOKIES["Skeez"])
+
+def test_cookie(admin_name: str) -> dict:
+    """Test if a cookie is valid by hitting a lightweight Cybershoke endpoint."""
+    try:
+        resp = requests.post(
+            "https://api.cybershoke.net/api/v1/custom-matches/lobbys/info",
+            headers=get_headers(admin_name),
+            json={"id_lobby": 1},
+            timeout=8,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("result") == "error" and "auth" in str(data.get("message", "")).lower():
+                return {"valid": False, "reason": "Auth rejected — cookie expired"}
+            return {"valid": True, "reason": f"OK (HTTP {resp.status_code})"}
+        if resp.status_code in (401, 403):
+            return {"valid": False, "reason": f"HTTP {resp.status_code} — cookie expired or invalid"}
+        return {"valid": True, "reason": f"HTTP {resp.status_code} (may still work)"}
+    except Exception as e:
+        return {"valid": False, "reason": f"Connection error: {e}"}
+
 def get_headers(admin_name):
-    # Fallback to Skeez if name not in dict or not logged in
-    cookie = COOKIES.get(admin_name, COOKIES["Skeez"])
+    cookie = _get_cookie_for(admin_name)
     return {
         "authority": "api.cybershoke.net",
         "accept": "application/json, text/plain, */*",

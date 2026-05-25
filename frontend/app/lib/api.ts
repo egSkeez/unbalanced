@@ -145,6 +145,23 @@ export const addMapToPool = (name: string, token: string, logo?: string) =>
 export const removeMapFromPool = (name: string, token: string) =>
     fetchApi(`/api/admin/map-pool/${encodeURIComponent(name)}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
 
+// Cybershoke Cookies
+export const getCybershokeCookies = (token: string) =>
+    fetchApi('/api/admin/cookies', { headers: { 'Authorization': `Bearer ${token}` } });
+export const setCybershokeCookie = (adminName: string, cookieString: string, token: string) =>
+    fetchApi(`/api/admin/cookies/${encodeURIComponent(adminName)}`, {
+        method: 'PUT', body: JSON.stringify({ cookie_string: cookieString }),
+        headers: { 'Authorization': `Bearer ${token}` },
+    });
+export const deleteCybershokeCookie = (adminName: string, token: string) =>
+    fetchApi(`/api/admin/cookies/${encodeURIComponent(adminName)}`, {
+        method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` },
+    });
+export const testCybershokeCookie = (adminName: string, token: string) =>
+    fetchApi(`/api/admin/cookies/${encodeURIComponent(adminName)}/test`, {
+        method: 'POST', headers: { 'Authorization': `Bearer ${token}` },
+    });
+
 // Roommates
 export const getRoommates = () => fetchApi('/api/roommates');
 export const setRoommates = (groups: string[][]) =>
