@@ -63,10 +63,59 @@ from cybershoke import (
     get_lobby_match_result,
 )
 from discord_bot import send_full_match_info, send_lobby_to_discord
-from constants import TEAM_NAMES, MAP_POOL, MAP_LOGOS, SKEEZ_TITLES, PLAYERS_INIT
+from constants import TEAM_NAMES, MAP_POOL as _DEFAULT_MAP_POOL, MAP_LOGOS as _DEFAULT_MAP_LOGOS, SKEEZ_TITLES, PLAYERS_INIT
 from season_logic import get_current_season_info, get_all_seasons
 from migrate_ratings import check_and_migrate
 from sync_to_production import sync_local_to_production
+
+# ──────────────────────────────────────────────
+# MAP POOL — DB-backed with in-memory cache
+# ──────────────────────────────────────────────
+
+import time as _time
+
+_map_pool_cache: dict = {"maps": None, "ts": 0.0}
+_MAP_CACHE_TTL = 300  # seconds
+
+def _init_map_pool_table():
+    """Create the map_pool table and seed with defaults if empty."""
+    with sync_engine.begin() as conn:
+        conn.execute(sa_text("""
+            CREATE TABLE IF NOT EXISTS map_pool (
+                map_name TEXT PRIMARY KEY,
+                logo_url TEXT,
+                position INTEGER DEFAULT 0
+            )
+        """))
+        count = conn.execute(sa_text("SELECT COUNT(*) FROM map_pool")).scalar()
+        if count == 0:
+            for i, m in enumerate(_DEFAULT_MAP_POOL):
+                conn.execute(sa_text(
+                    "INSERT INTO map_pool (map_name, logo_url, position) VALUES (:name, :logo, :pos)"
+                ), {"name": m, "logo": _DEFAULT_MAP_LOGOS.get(m, ""), "pos": i})
+
+def _get_map_pool() -> list[dict]:
+    """Return map pool from cache or DB."""
+    now = _time.time()
+    if _map_pool_cache["maps"] is not None and now - _map_pool_cache["ts"] < _MAP_CACHE_TTL:
+        return _map_pool_cache["maps"]
+    with sync_engine.connect() as conn:
+        rows = conn.execute(sa_text("SELECT map_name, logo_url, position FROM map_pool ORDER BY position")).fetchall()
+    maps = [{"name": r[0], "logo": r[1] or "", "position": r[2]} for r in rows]
+    _map_pool_cache["maps"] = maps
+    _map_pool_cache["ts"] = now
+    return maps
+
+def _invalidate_map_cache():
+    _map_pool_cache["maps"] = None
+    _map_pool_cache["ts"] = 0.0
+
+def get_active_map_pool() -> list[str]:
+    """Convenience: just the map names in display order."""
+    return [m["name"] for m in _get_map_pool()]
+
+def get_active_map_logos() -> dict[str, str]:
+    return {m["name"]: m["logo"] for m in _get_map_pool()}
 
 # --- Lifespan for Async Init ---
 @asynccontextmanager
@@ -74,6 +123,7 @@ async def lifespan(app: FastAPI):
     # Startup
     init_db() # Legacy Sync
     init_match_stats_tables() # Legacy Sync
+    _init_map_pool_table() # Map pool
     check_and_migrate() # Legacy Sync
     await init_async_db() # New Async (creates all tables including tournaments)
     await init_user_accounts() # New Async
@@ -464,8 +514,8 @@ def df_to_records(df):
 @app.get("/api/constants")
 def get_constants():
     return {
-        "map_pool": MAP_POOL,
-        "map_logos": MAP_LOGOS,
+        "map_pool": get_active_map_pool(),
+        "map_logos": get_active_map_logos(),
         "team_names": TEAM_NAMES,
         "skeez_titles": SKEEZ_TITLES,
     }
@@ -1075,8 +1125,9 @@ def veto_init():
         raise HTTPException(400, "No active draft")
     _, _, n_a, n_b, *_ = saved
     winner = random.choice([n_a, n_b])
-    init_veto_state(MAP_POOL.copy(), winner)
-    return {"winner": winner, "maps": MAP_POOL}
+    pool = get_active_map_pool()
+    init_veto_state(pool.copy(), winner)
+    return {"winner": winner, "maps": pool}
 
 @app.post("/api/veto/reset")
 def veto_reset(current_user: User = Depends(get_current_user)):
@@ -1213,7 +1264,7 @@ def submit_captain_vote(req: VoteRequest):
             if saved:
                 _, _, n_a, n_b, *_ = saved
                 winner = random.choice([n_a, n_b])
-                init_veto_state(MAP_POOL.copy(), winner)
+                init_veto_state(get_active_map_pool().copy(), winner)
 
     return {"status": "ok"}
 
@@ -1945,6 +1996,58 @@ def import_lobby_full(req: LobbyImportRequest, current_user: User = Depends(get_
         "players":  players_out,
         "steps":    steps,
     }
+
+# ──────────────────────────────────────────────
+# ADMIN — MAP POOL
+# ──────────────────────────────────────────────
+
+class MapPoolUpdateRequest(BaseModel):
+    maps: List[dict]  # [{"name": "Dust2", "logo": "https://...", "position": 0}, ...]
+
+@app.get("/api/admin/map-pool")
+def admin_get_map_pool():
+    return _get_map_pool()
+
+@app.put("/api/admin/map-pool")
+def admin_set_map_pool(req: MapPoolUpdateRequest, current_user: User = Depends(get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(403, "Admin only")
+    with sync_engine.begin() as conn:
+        conn.execute(sa_text("DELETE FROM map_pool"))
+        for i, m in enumerate(req.maps):
+            conn.execute(sa_text(
+                "INSERT INTO map_pool (map_name, logo_url, position) VALUES (:name, :logo, :pos)"
+            ), {"name": m["name"], "logo": m.get("logo", ""), "pos": m.get("position", i)})
+    _invalidate_map_cache()
+    return {"status": "ok", "count": len(req.maps)}
+
+@app.post("/api/admin/map-pool/add")
+def admin_add_map(data: dict, current_user: User = Depends(get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(403, "Admin only")
+    name = data.get("name", "").strip()
+    if not name:
+        raise HTTPException(400, "Map name required")
+    logo = data.get("logo", f"https://raw.githubusercontent.com/MurkyYT/cs2-map-icons/main/images/de_{name.lower()}.png")
+    with sync_engine.begin() as conn:
+        existing = conn.execute(sa_text("SELECT map_name FROM map_pool WHERE map_name = :name"), {"name": name}).fetchone()
+        if existing:
+            raise HTTPException(409, f"{name} already in map pool")
+        max_pos = conn.execute(sa_text("SELECT COALESCE(MAX(position), -1) FROM map_pool")).scalar()
+        conn.execute(sa_text(
+            "INSERT INTO map_pool (map_name, logo_url, position) VALUES (:name, :logo, :pos)"
+        ), {"name": name, "logo": logo, "pos": max_pos + 1})
+    _invalidate_map_cache()
+    return {"status": "ok"}
+
+@app.delete("/api/admin/map-pool/{map_name}")
+def admin_remove_map(map_name: str, current_user: User = Depends(get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(403, "Admin only")
+    with sync_engine.begin() as conn:
+        conn.execute(sa_text("DELETE FROM map_pool WHERE map_name = :name"), {"name": map_name})
+    _invalidate_map_cache()
+    return {"status": "ok"}
 
 # ──────────────────────────────────────────────
 # ADMIN — ROOMMATES

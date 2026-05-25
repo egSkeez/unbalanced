@@ -136,6 +136,15 @@ export const importLobbyFull = (data: { lobby_id: string; admin_name?: string },
         headers: { 'Authorization': `Bearer ${token}` },
     });
 
+// Map Pool
+export const getMapPool = () => fetchApi('/api/admin/map-pool');
+export const setMapPool = (maps: Array<{ name: string; logo: string; position: number }>, token: string) =>
+    fetchApi('/api/admin/map-pool', { method: 'PUT', body: JSON.stringify({ maps }), headers: { 'Authorization': `Bearer ${token}` } });
+export const addMapToPool = (name: string, token: string, logo?: string) =>
+    fetchApi('/api/admin/map-pool/add', { method: 'POST', body: JSON.stringify({ name, logo }), headers: { 'Authorization': `Bearer ${token}` } });
+export const removeMapFromPool = (name: string, token: string) =>
+    fetchApi(`/api/admin/map-pool/${encodeURIComponent(name)}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+
 // Roommates
 export const getRoommates = () => fetchApi('/api/roommates');
 export const setRoommates = (groups: string[][]) =>

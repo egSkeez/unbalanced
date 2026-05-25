@@ -5,6 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import {
     getPlayers, createPlayer, updatePlayer, deletePlayer,
     getLobbyHistory, analyzeLobby, lobbyQuickCheck, importLobbyFull,
+    getMapPool, addMapToPool, removeMapFromPool,
     getRoommates, setRoommates, clearDraft,
     getUsers, updateUserRole, deleteUser, syncPlayers,
     adminCreateUser, adminUpdateUser, adminResetPassword, adminUpdateScores,
@@ -37,7 +38,7 @@ export default function AdminPage() {
     const { user, token, loading: authLoading } = useAuth();
     const router = useRouter();
 
-    const [tab, setTab] = useState<'players' | 'users' | 'lobbies' | 'roommates' | 'danger'>('players');
+    const [tab, setTab] = useState<'players' | 'users' | 'lobbies' | 'maps' | 'roommates' | 'danger'>('players');
     const [players, setPlayers] = useState<Player[]>([]);
     const [registeredUsers, setRegisteredUsers] = useState<RegisteredUser[]>([]);
     const [lobbies, setLobbies] = useState<Array<Record<string, string | number>>>([]);
@@ -63,6 +64,10 @@ export default function AdminPage() {
     const [passwordDialog, setPasswordDialog] = useState<{ userId: string; displayName: string } | null>(null);
     const [newPassword, setNewPassword] = useState('');
 
+    // Map pool state
+    const [mapPool, setMapPool] = useState<Array<{ name: string; logo: string; position: number }>>([]);
+    const [newMapName, setNewMapName] = useState('');
+
     // Lobby import state
     const [lobbyInput, setLobbyInput] = useState('');
     const [lobbyPreview, setLobbyPreview] = useState<Record<string, unknown> | null>(null);
@@ -82,14 +87,15 @@ export default function AdminPage() {
         didLoad.current = true;
 
         setLoadingData(true);
-        const promises: Promise<any>[] = [getPlayers(), getLobbyHistory(), getRoommates()];
+        const promises: Promise<any>[] = [getPlayers(), getLobbyHistory(), getRoommates(), getMapPool()];
         if (token) promises.push(getUsers(token));
 
         Promise.all(promises)
-            .then(([p, l, r, u]) => {
+            .then(([p, l, r, mp, u]) => {
                 setPlayers(p);
                 setLobbies(l);
                 setRoommateGroups(r.groups || []);
+                setMapPool(mp || []);
                 if (u) setRegisteredUsers(u);
             })
             .catch(() => { setStatus('Failed to load admin data'); })
@@ -117,6 +123,32 @@ export default function AdminPage() {
             setStatus(`❌ ${e instanceof Error ? e.message : 'Analysis failed'}`);
         }
         setAnalyzing(null);
+    };
+
+    const handleAddMap = async () => {
+        const name = newMapName.trim();
+        if (!name || !token) return;
+        try {
+            await addMapToPool(name, token);
+            const updated = await getMapPool();
+            setMapPool(updated);
+            setNewMapName('');
+            setStatus(`✅ Added ${name} to map pool`);
+        } catch (e: unknown) {
+            setStatus(`❌ ${e instanceof Error ? e.message : 'Failed to add map'}`);
+        }
+    };
+
+    const handleRemoveMap = async (name: string) => {
+        if (!token) return;
+        try {
+            await removeMapFromPool(name, token);
+            const updated = await getMapPool();
+            setMapPool(updated);
+            setStatus(`✅ Removed ${name} from map pool`);
+        } catch (e: unknown) {
+            setStatus(`❌ ${e instanceof Error ? e.message : 'Failed to remove map'}`);
+        }
     };
 
     const extractLobbyId = (input: string): string => {
@@ -393,6 +425,7 @@ export default function AdminPage() {
         { key: 'players' as const, icon: '👥', label: 'Players', count: players.length },
         { key: 'users' as const, icon: '🔑', label: 'Accounts', count: registeredUsers.length },
         { key: 'lobbies' as const, icon: '🏢', label: 'Lobbies', count: lobbies.length },
+        { key: 'maps' as const, icon: '🗺️', label: 'Map Pool', count: mapPool.length },
         { key: 'roommates' as const, icon: '🏠', label: 'Roommates', count: roommates.length },
         { key: 'danger' as const, icon: '⚠️', label: 'Danger Zone' },
     ];
@@ -1122,6 +1155,42 @@ export default function AdminPage() {
                                 </tbody>
                             </table>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ══════════════ MAP POOL TAB ══════════════ */}
+            {tab === 'maps' && (
+                <div className="card">
+                    <div className="card-header">Map Pool</div>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 16 }}>
+                        These maps are used for the veto pick/ban phase. Drag to reorder is not supported yet — maps appear in the order they were added. Remove and re-add to change order.
+                    </p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+                        {mapPool.map((m) => (
+                            <div key={m.name} className="player-chip" style={{ justifyContent: 'space-between', padding: '10px 16px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                    {m.logo && (
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        <img src={m.logo} alt={m.name} style={{ width: 32, height: 32, borderRadius: 4, objectFit: 'cover' }} />
+                                    )}
+                                    <span style={{ fontWeight: 600, fontSize: 14 }}>{m.name}</span>
+                                </div>
+                                <button className="btn btn-sm btn-danger" onClick={() => handleRemoveMap(m.name)}>✕</button>
+                            </div>
+                        ))}
+                        {mapPool.length === 0 && <p style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No maps in pool</p>}
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                        <input
+                            className="input"
+                            style={{ flex: 1 }}
+                            value={newMapName}
+                            onChange={e => setNewMapName(e.target.value)}
+                            placeholder="Map name (e.g. Train)"
+                            onKeyDown={e => e.key === 'Enter' && handleAddMap()}
+                        />
+                        <button className="btn btn-sm btn-primary" onClick={handleAddMap} disabled={!newMapName.trim()}>Add Map</button>
                     </div>
                 </div>
             )}
