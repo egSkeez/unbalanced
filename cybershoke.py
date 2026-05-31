@@ -52,6 +52,7 @@ def get_all_cookies_db() -> dict[str, dict]:
 
 def set_cookie_db(admin_name: str, cookie_string: str):
     """Upsert a cookie and invalidate cache."""
+    cookie_string = _normalize_cookie(cookie_string)
     with sync_engine.begin() as conn:
         existing = conn.execute(sa_text("SELECT admin_name FROM cybershoke_cookies WHERE admin_name = :name"), {"name": admin_name}).fetchone()
         if existing:
@@ -71,12 +72,20 @@ def delete_cookie_db(admin_name: str):
     _cookie_cache["data"] = None
     _cookie_cache["ts"] = 0.0
 
+def _normalize_cookie(raw: str) -> str:
+    """Accept a bare multitoken value or a full cookie string and return a proper cookie string."""
+    raw = raw.strip()
+    if "multitoken=" in raw:
+        return raw
+    # Bare token value — wrap it
+    return f"lang_g=en; cookie_read=1; multitoken={raw}; multitoken_created=1"
+
 def _get_cookie_for(admin_name: str) -> str:
     """Get cookie string for an admin, falling back through DB → hardcoded."""
     db = get_all_cookies_db()
     entry = db.get(admin_name) or db.get("Skeez")
     if entry:
-        return entry["cookie_string"]
+        return _normalize_cookie(entry["cookie_string"])
     return _FALLBACK_COOKIES.get(admin_name, _FALLBACK_COOKIES["Skeez"])
 
 def test_cookie(admin_name: str) -> dict:
