@@ -59,6 +59,7 @@ export default function MixerPage() {
   const [bannedMaps, setBannedMaps] = useState<string[]>([]);
   const [skeezTitle, setSkeezTitle] = useState('');
   const [viewingPlayer, setViewingPlayer] = useState<string | null>(null);
+  const [playerSearch, setPlayerSearch] = useState('');
 
   const { user, token, loading: authLoading } = useAuth();
   const router = useRouter();
@@ -514,17 +515,27 @@ export default function MixerPage() {
       </div>
 
       {/* Player grid */}
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
           <strong style={{ color: selected.length === 10 ? 'var(--neon-green)' : 'var(--text-primary)' }}>{selected.length}</strong>/10 selected
         </span>
+        <input
+          className="input"
+          placeholder="🔍 Search players..."
+          value={playerSearch}
+          onChange={e => setPlayerSearch(e.target.value)}
+          style={{ flex: 1, minWidth: 180, maxWidth: 320 }}
+        />
         {selected.length > 0 && (
           <button className="btn btn-sm" onClick={() => setSelected([])}>Clear</button>
         )}
       </div>
 
       <div className="grid-5" style={{ marginBottom: 32 }}>
-        {players.map(p => (
+        {players
+          .filter(p => p.name.toLowerCase().includes(playerSearch.trim().toLowerCase()))
+          .sort((a, b) => (b.overall ?? 0) - (a.overall ?? 0))
+          .map(p => (
           <div
             key={p.name}
             className={`player-chip ${selected.includes(p.name) ? 'selected' : ''}`}
