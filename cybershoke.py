@@ -6,6 +6,10 @@ import time as _time
 from database import sync_engine
 from sqlalchemy import text as sa_text
 
+# Cybershoke dropped the api.cybershoke.net subdomain (no DNS record anymore);
+# the API is now served from the main domain under /api
+CYBERSHOKE_API_BASE = "https://cybershoke.net/api"
+
 # ── Cookie storage ────────────────────────────────────────────────────
 
 # Hardcoded fallback (used only if nothing in DB yet)
@@ -92,7 +96,7 @@ def test_cookie(admin_name: str) -> dict:
     """Test if a cookie is valid by hitting a lightweight Cybershoke endpoint."""
     try:
         resp = requests.post(
-            "https://api.cybershoke.net/api/v1/custom-matches/lobbys/info",
+            f"{CYBERSHOKE_API_BASE}/api/v1/custom-matches/lobbys/info",
             headers=get_headers(admin_name),
             json={"id_lobby": 1},
             timeout=8,
@@ -111,7 +115,7 @@ def test_cookie(admin_name: str) -> dict:
 def get_headers(admin_name):
     cookie = _get_cookie_for(admin_name)
     return {
-        "authority": "api.cybershoke.net",
+        "authority": "cybershoke.net",
         "accept": "application/json, text/plain, */*",
         "accept-language": "fr,fr-FR;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
         "content-type": "application/json",
@@ -132,7 +136,7 @@ def create_cybershoke_lobby_api(admin_name="Skeez"):
     Creates a lobby using the working Custom Match API endpoint.
     Uses specific cookie based on who is logged in as Admin.
     """
-    url = "https://api.cybershoke.net/api/v1/custom-matches/lobbys/create"
+    url = f"{CYBERSHOKE_API_BASE}/api/v1/custom-matches/lobbys/create"
     
     payload = {
         "type_lobby": 2, 
@@ -223,7 +227,7 @@ def get_lobby_match_result(lobby_id):
         - finished: bool (whether the match has concluded)
     Returns None on failure.
     """
-    url = "https://api.cybershoke.net/api/v1/custom-matches/lobbys/info"
+    url = f"{CYBERSHOKE_API_BASE}/api/v1/custom-matches/lobbys/info"
     try:
         payload = {"id_lobby": lobby_id}
         resp = requests.post(url, headers=get_headers("Skeez"), json=payload, timeout=10)
@@ -302,7 +306,7 @@ def get_lobby_player_stats(lobby_id):
        - map_name: "de_mapname"
     """
     # Use the internal API that returns the lobby data including stats
-    url = "https://api.cybershoke.net/api/v1/custom-matches/lobbys/info"
+    url = f"{CYBERSHOKE_API_BASE}/api/v1/custom-matches/lobbys/info"
     
     try:
         payload = {"id_lobby": lobby_id}

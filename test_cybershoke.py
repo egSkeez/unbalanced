@@ -9,7 +9,7 @@ COOKIES = {
 def get_headers(admin_name):
     cookie = COOKIES.get(admin_name, COOKIES["Skeez"])
     return {
-        "authority": "api.cybershoke.net",
+        "authority": "cybershoke.net",
         "accept": "application/json, text/plain, */*",
         "accept-language": "fr,fr-FR;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
         "content-type": "application/json",
@@ -20,7 +20,7 @@ def get_headers(admin_name):
     }
 
 def test_create():
-    url = "https://api.cybershoke.net/api/v1/custom-matches/lobbys/create"
+    url = "https://cybershoke.net/api/api/v1/custom-matches/lobbys/create"
     payload = {
         "type_lobby": 2, 
         "lobby_password": "kimkim"

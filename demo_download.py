@@ -24,10 +24,10 @@ def download_demo(match_id, admin_name="Skeez", direct_url=None):
     else:
         urls_to_try = [
              f"https://cdn-de-1.cybershoke.net/demos/{match_id}",
-             f"https://api.cybershoke.net/api/v1/custom-matches/lobbys/{match_id}/demo",
+             f"https://cybershoke.net/api/api/v1/custom-matches/lobbys/{match_id}/demo",
              f"https://cybershoke.net/api/match/{match_id}/demo",
-             f"https://api.cybershoke.net/api/v1/match/{match_id}/demo",
-             f"https://api.cybershoke.net/api/v1/matches/{match_id}/demo"
+             f"https://cybershoke.net/api/api/v1/match/{match_id}/demo",
+             f"https://cybershoke.net/api/api/v1/matches/{match_id}/demo"
         ]
     
     last_error = ""

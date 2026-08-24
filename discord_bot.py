@@ -57,6 +57,7 @@ def send_full_match_info(name_a, t1_players, name_b, t2_players, maps, lobby_lin
     if lobby_link:
         server_text = (
             f"[🔗 JOIN LOBBY]({lobby_link})\n"
+            f"🌐 {lobby_link}\n"
             f"🔑 Password: `kimkim`"
         )
 

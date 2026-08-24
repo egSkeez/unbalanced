@@ -223,7 +223,7 @@ class BroadcastRequest(BaseModel):
     name_b: str
     team2: List[str]
     maps: str
-    lobby_link: str
+    lobby_link: str = ""
 
 class EloUpdateRequest(BaseModel):
     team1: List[str]
@@ -1790,7 +1790,13 @@ def broadcast(req: BroadcastRequest, current_user: User = Depends(get_current_us
     if current_user.role != "admin" and not is_creator:
         raise HTTPException(403, "Only the admin or draft creator can broadcast to Discord")
     maps = req.maps.split(",") if isinstance(req.maps, str) else req.maps
-    send_full_match_info(req.name_a, req.team1, req.name_b, req.team2, maps, req.lobby_link)
+    # Always include the Cybershoke lobby link: fall back to the stored one
+    # if the client didn't have it (e.g. lobby auto-created during veto)
+    lobby_link = req.lobby_link
+    if not lobby_link:
+        stored_link, _ = get_lobby_link()
+        lobby_link = stored_link or ""
+    send_full_match_info(req.name_a, req.team1, req.name_b, req.team2, maps, lobby_link)
     return {"status": "ok"}
 
 @app.post("/api/discord/lobby")
