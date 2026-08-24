@@ -93,22 +93,25 @@ def _get_cookie_for(admin_name: str) -> str:
     return _FALLBACK_COOKIES.get(admin_name, _FALLBACK_COOKIES["Skeez"])
 
 def test_cookie(admin_name: str) -> dict:
-    """Test if a cookie is valid by hitting a lightweight Cybershoke endpoint."""
+    """Test if a cookie actually authenticates.
+
+    Uses GET /user/auth/sessions, which requires a valid multitoken:
+    200 = logged in, 403 = expired/invalid. (lobbys/info is useless for
+    this — it answers even without auth.)
+    """
     try:
-        resp = requests.post(
-            f"{CYBERSHOKE_API_BASE}/api/v1/custom-matches/lobbys/info",
+        resp = requests.get(
+            f"{CYBERSHOKE_API_BASE}/api/v1/user/auth/sessions",
             headers=get_headers(admin_name),
-            json={"id_lobby": 1},
             timeout=8,
         )
         if resp.status_code == 200:
-            data = resp.json()
-            if data.get("result") == "error" and "auth" in str(data.get("message", "")).lower():
-                return {"valid": False, "reason": "Auth rejected — cookie expired"}
-            return {"valid": True, "reason": f"OK (HTTP {resp.status_code})"}
+            return {"valid": True, "reason": "OK — cookie is authenticated"}
         if resp.status_code in (401, 403):
             return {"valid": False, "reason": f"HTTP {resp.status_code} — cookie expired or invalid"}
-        return {"valid": True, "reason": f"HTTP {resp.status_code} (may still work)"}
+        if resp.status_code == 429:
+            return {"valid": False, "reason": "HTTP 429 — rate limited, try again in a minute"}
+        return {"valid": False, "reason": f"HTTP {resp.status_code} — unexpected response"}
     except Exception as e:
         return {"valid": False, "reason": f"Connection error: {e}"}
 
