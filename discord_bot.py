@@ -62,7 +62,7 @@ def send_full_match_info(name_a, t1_players, name_b, t2_players, maps, lobby_lin
         )
 
     header_embed["fields"].append({
-        "name": "🚀 JOIN THE SERVER",
+        "name": "🚀 3me fi 3inik",
         "value": server_text,
         "inline": False
     })
